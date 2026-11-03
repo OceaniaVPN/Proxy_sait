@@ -1,0 +1,40 @@
+{
+  "proxies": [
+    {
+      "id": "demo-frankfurt",
+      "name": "Demo Node · Frankfurt",
+      "protocol": "SOCKS5",
+      "address": "proxy-frankfurt.example:1080",
+      "country": "Германия",
+      "city": "Франкфурт",
+      "connection": "socks5://proxy-frankfurt.example:1080"
+    },
+    {
+      "id": "demo-toronto",
+      "name": "Demo Node · Toronto",
+      "protocol": "HTTP",
+      "address": "proxy-toronto.example:8080",
+      "country": "Канада",
+      "city": "Торонто",
+      "connection": "http://proxy-toronto.example:8080"
+    },
+    {
+      "id": "demo-stockholm",
+      "name": "Demo Node · Stockholm",
+      "protocol": "VLESS",
+      "address": "proxy-stockholm.example:443",
+      "country": "Швеция",
+      "city": "Стокгольм",
+      "connection": "vless://00000000-0000-0000-0000-000000000000@proxy-stockholm.example:443?encryption=none#DEMO"
+    },
+    {
+      "id": "demo-amsterdam",
+      "name": "Demo Node · Amsterdam",
+      "protocol": "Shadowsocks",
+      "address": "proxy-amsterdam.example:8388",
+      "country": "Нидерланды",
+      "city": "Амстердам",
+      "connection": "ss://demo@example.invalid:8388"
+    }
+  ]
+}
