@@ -1,40 +1,64 @@
 {
   "proxies": [
     {
-      "id": "demo-frankfurt",
-      "name": "Demo Node · Frankfurt",
-      "protocol": "SOCKS5",
-      "address": "proxy-frankfurt.example:1080",
+      "id": "demo-web-frankfurt",
+      "name": "WEB (TG) · Frankfurt",
+      "protocol": "WEB (TG)",
+      "address": "web-tg-frankfurt.example.invalid:443",
       "country": "Германия",
       "city": "Франкфурт",
-      "connection": "socks5://proxy-frankfurt.example:1080"
+      "status": "demo",
+      "connection": "https://web-tg-frankfurt.example.invalid/"
     },
     {
-      "id": "demo-toronto",
-      "name": "Demo Node · Toronto",
-      "protocol": "HTTP",
-      "address": "proxy-toronto.example:8080",
-      "country": "Канада",
-      "city": "Торонто",
-      "connection": "http://proxy-toronto.example:8080"
-    },
-    {
-      "id": "demo-stockholm",
-      "name": "Demo Node · Stockholm",
-      "protocol": "VLESS",
-      "address": "proxy-stockholm.example:443",
-      "country": "Швеция",
-      "city": "Стокгольм",
-      "connection": "vless://00000000-0000-0000-0000-000000000000@proxy-stockholm.example:443?encryption=none#DEMO"
-    },
-    {
-      "id": "demo-amsterdam",
-      "name": "Demo Node · Amsterdam",
-      "protocol": "Shadowsocks",
-      "address": "proxy-amsterdam.example:8388",
+      "id": "demo-web-amsterdam",
+      "name": "WEB (TG) · Amsterdam",
+      "protocol": "WEB (TG)",
+      "address": "web-tg-amsterdam.example.invalid:443",
       "country": "Нидерланды",
       "city": "Амстердам",
-      "connection": "ss://demo@example.invalid:8388"
+      "status": "demo",
+      "connection": "https://web-tg-amsterdam.example.invalid/"
+    },
+    {
+      "id": "demo-socks-frankfurt",
+      "name": "SOCKS5 (TG) · Frankfurt",
+      "protocol": "SOCKS5 (TG)",
+      "address": "socks5-tg-frankfurt.example.invalid:1080",
+      "country": "Германия",
+      "city": "Франкфурт",
+      "status": "demo",
+      "connection": "tg://socks?server=socks5-tg-frankfurt.example.invalid&port=1080"
+    },
+    {
+      "id": "demo-socks-helsinki",
+      "name": "SOCKS5 (TG) · Helsinki",
+      "protocol": "SOCKS5 (TG)",
+      "address": "socks5-tg-helsinki.example.invalid:1080",
+      "country": "Финляндия",
+      "city": "Хельсинки",
+      "status": "demo",
+      "connection": "tg://socks?server=socks5-tg-helsinki.example.invalid&port=1080"
+    },
+    {
+      "id": "demo-mtproto-frankfurt",
+      "name": "MTProto · Frankfurt",
+      "protocol": "MTProto",
+      "address": "mtproto-frankfurt.example.invalid:443",
+      "country": "Германия",
+      "city": "Франкфурт",
+      "status": "demo",
+      "connection": "tg://proxy?server=mtproto-frankfurt.example.invalid&port=443&secret=demo-secret-not-valid"
+    },
+    {
+      "id": "demo-mtproto-helsinki",
+      "name": "MTProto · Helsinki",
+      "protocol": "MTProto",
+      "address": "mtproto-helsinki.example.invalid:443",
+      "country": "Финляндия",
+      "city": "Хельсинки",
+      "status": "demo",
+      "connection": "tg://proxy?server=mtproto-helsinki.example.invalid&port=443&secret=demo-secret-not-valid"
     }
   ]
 }
