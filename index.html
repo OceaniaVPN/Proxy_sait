@@ -26,23 +26,6 @@
       --radius: 22px;
       --shadow: 0 28px 90px rgba(0,0,0,.36);
     }
-    /* Сезонные темы и панель управления оформлением */
-    body[data-season="spring"] { --bg:#10170f; --mint:#b7f08b; --mint-2:#83c96f; --blue:#9bd9d0; --violet:#c1a9e8; --season-glow:rgba(145,205,119,.18); }
-    body[data-season="summer"] { --bg:#101821; --mint:#ffd36e; --mint-2:#f0a85b; --blue:#72d5e8; --violet:#b7a4ff; --season-glow:rgba(244,190,92,.19); }
-    body[data-season="autumn"] { --bg:#1b120e; --mint:#ffad65; --mint-2:#dc7950; --blue:#d7b078; --violet:#c58d78; --season-glow:rgba(201,105,58,.2); }
-    body[data-season="winter"] { --bg:#0b1420; --mint:#a9e6ff; --mint-2:#75c5e8; --blue:#8fb8ff; --violet:#c3c8ff; --season-glow:rgba(111,181,230,.2); }
-    body::after { content:""; position:fixed; inset:0; z-index:-2; pointer-events:none; background:radial-gradient(ellipse at 50% 0%,var(--season-glow,rgba(130,190,140,.1)),transparent 58%); transition:background .35s; }
-    .season-admin { margin:18px auto 0; border:1px solid var(--line-strong); border-radius:16px; background:rgba(15,22,32,.82); overflow:hidden; }
-    .season-admin summary { padding:13px 16px; color:var(--mint); font-size:11px; font-weight:800; letter-spacing:.7px; cursor:pointer; list-style:none; }
-    .season-admin summary::-webkit-details-marker { display:none; }
-    .season-admin summary::after { content:"＋"; float:right; }
-    .season-admin[open] summary::after { content:"−"; }
-    .season-admin-content { padding:0 16px 16px; }
-    .season-admin-content p { margin:0 0 12px; color:var(--muted); font-size:11px; }
-    .season-options { display:flex; flex-wrap:wrap; gap:8px; }
-    .season-option { min-height:38px; padding:0 13px; border:1px solid var(--line-strong); border-radius:10px; color:var(--text); background:rgba(255,255,255,.035); cursor:pointer; font-size:11px; font-weight:700; }
-    .season-option[aria-pressed="true"] { border-color:var(--mint); color:var(--mint); background:rgba(255,255,255,.06); }
-    .season-option:focus-visible,.season-admin summary:focus-visible { outline:2px solid var(--mint); outline-offset:3px; }
     * { box-sizing: border-box; }
     html { scroll-behavior: smooth; }
     body {
@@ -278,18 +261,6 @@
   </style>
 </head>
 <body>
-  <details class="season-admin wrap" id="season-admin">
-    <summary>АДМИН-ПАНЕЛЬ · УПРАВЛЕНИЕ ВРЕМЕНЕМ ГОДА</summary>
-    <div class="season-admin-content">
-      <p>Выбери сезон — изменится только цветовая тема STEKLOVPN на этом устройстве.</p>
-      <div class="season-options" role="group" aria-label="Выбор времени года">
-        <button class="season-option" type="button" data-season-choice="spring" aria-pressed="false">🌱 Весна</button>
-        <button class="season-option" type="button" data-season-choice="summer" aria-pressed="false">☀️ Лето</button>
-        <button class="season-option" type="button" data-season-choice="autumn" aria-pressed="false">🍂 Осень</button>
-        <button class="season-option" type="button" data-season-choice="winter" aria-pressed="false">❄️ Зима</button>
-      </div>
-    </div>
-  </details>
   <header class="topbar wrap">
     <a class="brand" href="#top" aria-label="STEKLOVPN — наверх">
       <span class="brand-mark">P.</span>
@@ -386,7 +357,6 @@
 
   <footer class="footline wrap">
     <div><strong>STEKLOVPN</strong> <span>· КАТАЛОГ TELEGRAM-ПРОКСИ</span></div>
-    <div class="foot-right"><span>Сезонное оформление</span></div>
   </footer>
   <div class="toast" id="toast" role="status" aria-live="polite"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6"/></svg><span id="toast-text">Ссылка скопирована</span></div>
 
@@ -396,23 +366,6 @@
     const $ = (selector) => document.querySelector(selector);
     let proxies = [];
     let toastTimer;
-
-    const seasonNames = { spring: 'Весна', summer: 'Лето', autumn: 'Осень', winter: 'Зима' };
-    function applySeason(season) {
-      if (!(season in seasonNames)) season = 'spring';
-      document.body.dataset.season = season;
-      document.querySelectorAll('[data-season-choice]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.seasonChoice === season)));
-      try { localStorage.setItem('steklovpn-season', season); } catch (_) { /* Хранилище необязательно. */ }
-    }
-    let savedSeason = 'spring';
-    try { savedSeason = localStorage.getItem('steklovpn-season') || 'spring'; } catch (_) { /* Тема по умолчанию. */ }
-    applySeason(savedSeason);
-    $('#season-admin').addEventListener('click', event => {
-      const button = event.target.closest('[data-season-choice]');
-      if (!button) return;
-      applySeason(button.dataset.seasonChoice);
-      showToast('Оформление: ' + seasonNames[button.dataset.seasonChoice]);
-    });
 
     function showToast(message) {
       $('#toast-text').textContent = message;
