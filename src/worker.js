@@ -96,7 +96,7 @@ async function handleApi(request, env, url) {
 
   if (path === "/api/admin/login" && method === "POST") {
     if (!sameOrigin(request, url)) return json({ error: "Origin check failed." }, 403);
-    if (!env.ADMIN_PASSWORD) return json({ error: "Admin password secret is not configured." }, 503);
+    if (!env.ADMIN_PASSWORD || !env.SESSION_SECRET) return json({ error: "Admin secrets are not configured." }, 503);
     const ip = request.headers.get("CF-Connecting-IP") || "unknown";
     const ipHash = await hmac("login-ip:" + ip, env.ADMIN_PASSWORD);
     const now = Math.floor(Date.now() / 1000);
@@ -133,7 +133,7 @@ async function handleApi(request, env, url) {
 
   if (path === "/api/admin/season" && method === "POST") {
     if (!sameOrigin(request, url)) return json({ error: "Origin check failed." }, 403);
-    if (!await isAdmin(request, env.ADMIN_PASSWORD || "")) return json({ error: "Требуется вход администратора." }, 401);
+    if (!await isAdmin(request, env.SESSION_SECRET || "")) return json({ error: "Требуется вход администратора." }, 401);
 
     let body;
     try {
