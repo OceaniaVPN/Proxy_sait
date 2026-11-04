@@ -124,8 +124,8 @@ async function probeTcpTarget(target) {
       status: "online",
       latencyMs: Math.max(1, Date.now() - startedAt)
     };
-  } catch (_) {
-    console.warn("TCP probe failed:", target.server, target.port);
+  } catch (error) {
+    console.warn("TCP probe failed:", target.server, target.port, error?.message || String(error));
     return {
       server: target.server,
       port: target.port,
