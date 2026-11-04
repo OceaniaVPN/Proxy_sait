@@ -91,7 +91,7 @@ async function handleApi(request, env, url) {
   }
 
   if (path === "/api/admin/session" && method === "GET") {
-    return json({ authenticated: await isAdmin(request, env.ADMIN_PASSWORD || "") });
+    return json({ authenticated: await isAdmin(request, env.SESSION_SECRET || "") });
   }
 
   if (path === "/api/admin/login" && method === "POST") {
