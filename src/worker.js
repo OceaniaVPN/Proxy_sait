@@ -153,6 +153,67 @@ async function probeTcpTargets(targets) {
   return results;
 }
 
+
+async function getProxyFeed(env) {
+  if (!env.ASSETS) throw new Error("Assets binding is not configured");
+  const response = await env.ASSETS.fetch(new Request("https://proxy-sait.internal/proxies.txt", {
+    method: "GET",
+    headers: { "Accept": "text/plain" }
+  }));
+  if (!response.ok) throw new Error("Could not read proxies.txt");
+  return response.text();
+}
+
+async function hashProxyFeed(feed) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(feed));
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function refreshProxyStatusCache(env) {
+  if (!env.DB) throw new Error("D1 binding DB is not configured");
+  const feed = await getProxyFeed(env);
+  const feedHash = await hashProxyFeed(feed);
+  const saved = await env.DB.prepare(
+    "SELECT feed_hash FROM proxy_status_meta WHERE id = 1"
+  ).first();
+
+  if (saved?.feed_hash === feedHash) return { changed: false };
+
+  const targets = Array.from(extractAllowedProxyTargets(feed).values());
+  const checked = await probeTcpTargets(targets);
+  const checkedAt = new Date().toISOString();
+
+  await env.DB.prepare("DELETE FROM proxy_status_cache").run();
+  for (let offset = 0; offset < checked.length; offset += 40) {
+    const batch = checked.slice(offset, offset + 40).map(item =>
+      env.DB.prepare(
+        "INSERT INTO proxy_status_cache (server, port, status, latency_ms, checked_at) VALUES (?, ?, ?, ?, ?)"
+      ).bind(item.server, item.port, item.status, item.latencyMs, checkedAt)
+    );
+    if (batch.length) await env.DB.batch(batch);
+  }
+
+  await env.DB.prepare(
+    "INSERT INTO proxy_status_meta (id, feed_hash, checked_at, target_count) VALUES (1, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET feed_hash = excluded.feed_hash, checked_at = excluded.checked_at, target_count = excluded.target_count"
+  ).bind(feedHash, checkedAt, checked.length).run();
+
+  return { changed: true, targetCount: checked.length, checkedAt };
+}
+
+async function getCachedProxyStatuses(env) {
+  if (!env.DB) return json({ error: "Database binding DB is not configured." }, 503);
+  const [meta, rows] = await Promise.all([
+    env.DB.prepare("SELECT checked_at, target_count FROM proxy_status_meta WHERE id = 1").first(),
+    env.DB.prepare("SELECT server, port, status, latency_ms AS latencyMs FROM proxy_status_cache ORDER BY server, port").all()
+  ]);
+  return json({
+    results: rows.results || [],
+    checkedAt: meta?.checked_at || null,
+    targetCount: meta?.target_count || 0,
+    ready: Boolean(meta?.checked_at)
+  });
+}
+
 async function handleProxyStatus(request, env, url) {
   if (!sameOrigin(request, url)) return json({ error: "Origin check failed." }, 403);
   if (!env.ASSETS) return json({ error: "Assets binding is not configured." }, 503);
@@ -206,8 +267,8 @@ async function handleProxyStatus(request, env, url) {
 async function handleApi(request, env, url) {
   const path = url.pathname;
   const method = request.method;
-  if (path === "/api/proxy-status" && method === "POST") {
-    return handleProxyStatus(request, env, url);
+  if (path === "/api/proxy-status" && method === "GET") {
+    return getCachedProxyStatuses(env);
   }
   if (!env.DB) return json({ error: "Database binding DB is not configured." }, 503);
 
@@ -330,5 +391,12 @@ export default {
       headers.set("Cache-Control", "public, max-age=3600");
     }
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  },
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil(
+      refreshProxyStatusCache(env).catch(error => {
+        console.error("Proxy status refresh failed:", error);
+      })
+    );
   }
 };
