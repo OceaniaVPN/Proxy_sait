@@ -192,6 +192,9 @@ export default {
       headers.set("Pragma", "no-cache");
     } else if (url.pathname === "/" || url.pathname.endsWith(".html")) {
       headers.set("Cache-Control", "public, max-age=0, must-revalidate");
+    } else if (/\.(?:js|css)$/i.test(url.pathname)) {
+      headers.set("Cache-Control", "no-store, max-age=0");
+      headers.set("Pragma", "no-cache");
     } else if (response.ok) {
       headers.set("Cache-Control", "public, max-age=3600");
     }
