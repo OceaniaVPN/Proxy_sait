@@ -349,6 +349,32 @@
     .weather-live-ground { z-index:0; background:linear-gradient(to top,rgba(218,242,255,.42),rgba(218,242,255,0)); box-shadow:0 -4px 16px rgba(190,228,255,.1); }
     .topbar, main, footer, .wrap { position:relative; z-index:3; }
 
+
+    /* Transform-only orbital rotation around the Telegram mark. */
+    @keyframes sk-proxy-ring-outer { from { transform:rotate(-24deg) scaleY(.63); } to { transform:rotate(336deg) scaleY(.63); } }
+    @keyframes sk-proxy-ring-middle { from { transform:rotate(46deg) scaleY(.58); } to { transform:rotate(406deg) scaleY(.58); } }
+    @keyframes sk-proxy-ring-inner { from { transform:rotate(0deg) scaleY(.7); } to { transform:rotate(360deg) scaleY(.7); } }
+    @keyframes sk-proxy-core {
+      0%,100% { transform:translateY(0) rotate(-9deg); }
+      25% { transform:translateY(-8px) rotate(81deg); }
+      50% { transform:translateY(-12px) rotate(171deg); }
+      75% { transform:translateY(-6px) rotate(261deg); }
+    }
+    .orb-area .orbit { animation:sk-proxy-ring-outer 22s linear infinite !important; animation-duration:22s !important; animation-iteration-count:infinite !important; }
+    .orb-area .orbit.two { animation:sk-proxy-ring-middle 33s linear infinite reverse !important; animation-duration:33s !important; animation-iteration-count:infinite !important; }
+    .orb-area .orbit.three { animation:sk-proxy-ring-inner 14s linear infinite !important; animation-duration:14s !important; animation-iteration-count:infinite !important; }
+    .orb-area .orb { animation:sk-proxy-core 19s ease-in-out infinite !important; animation-duration:19s !important; animation-iteration-count:infinite !important; }
+    @media(prefers-reduced-motion:reduce) {
+      .orb-area .orbit { animation-duration:50s !important; animation-iteration-count:infinite !important; }
+      .orb-area .orbit.two { animation-duration:66s !important; animation-iteration-count:infinite !important; }
+      .orb-area .orbit.three { animation-duration:42s !important; animation-iteration-count:infinite !important; }
+      .orb-area .orb { animation-duration:46s !important; animation-iteration-count:infinite !important; }
+    }
+    .weather-layer { position:fixed !important; inset:0 !important; z-index:1 !important; pointer-events:none !important; overflow:hidden !important; }
+    .topbar, main, footer, .wrap { position:relative; z-index:2; }
+    .weather-live { display:block; filter:drop-shadow(0 2px 5px rgba(0,0,0,.48)); }
+    .weather-live-leaf { text-shadow:0 2px 8px rgba(255,172,89,.42); }
+
 </style>
 </head>
 <body>
