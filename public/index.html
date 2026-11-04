@@ -384,6 +384,26 @@
     .weather-live { display:block; filter:drop-shadow(0 2px 5px rgba(0,0,0,.48)); }
     .weather-live-leaf { text-shadow:0 2px 8px rgba(255,172,89,.42); }
 
+
+    .server-status {
+      display:flex; align-items:center; gap:7px; width:fit-content; max-width:100%;
+      margin-top:6px; font:9px 'DM Mono',monospace; letter-spacing:.25px; line-height:1.45;
+    }
+    .server-status::before {
+      content:''; width:6px; height:6px; flex:none; border-radius:50%; background:var(--muted-2);
+    }
+    .server-status.status-checking { color:#b9d8ed; }
+    .server-status.status-checking::before {
+      background:var(--blue); box-shadow:0 0 0 3px rgba(120,200,255,.1),0 0 9px rgba(120,200,255,.7);
+      animation:proxy-status-pulse 1.25s ease-in-out infinite;
+    }
+    .server-status.status-online { color:var(--mint); }
+    .server-status.status-online::before { background:var(--mint); box-shadow:0 0 0 3px rgba(184,255,106,.1),0 0 9px rgba(184,255,106,.65); }
+    .server-status.status-offline { color:var(--danger); }
+    .server-status.status-offline::before { background:var(--danger); box-shadow:0 0 0 3px rgba(255,155,155,.09),0 0 9px rgba(255,155,155,.55); }
+    .server-status.status-unknown { color:var(--muted-2); }
+    @keyframes proxy-status-pulse { 50% { opacity:.35; } }
+
 </style>
 </head>
 <body>
@@ -529,12 +549,17 @@
               : (kind === 'socks' || kind === 'socks5') ? 'SOCKS5 (TG)'
               : kind === 'webproxy' ? 'WEB (TG)' : '';
             const server = url.searchParams.get('server') || (url.protocol === 'socks5:' ? url.hostname : '');
-            const port = url.searchParams.get('port') || url.port;
-            if (!protocol || !server || (protocol !== 'WEB (TG)' && !port)) continue;
+            const rawPort = url.searchParams.get('port') || url.port;
+            const port = rawPort ? Number(rawPort) : (protocol === 'WEB (TG)' ? 443 : 0);
+            if (!protocol || !server || (protocol !== 'WEB (TG)' && !rawPort)
+              || (port && (!Number.isInteger(port) || port < 1 || port > 65535))) continue;
             const normalized = url.toString();
             if (seen.has(normalized)) continue;
             seen.add(normalized);
-            links.push({ url: normalized, name: server + (port ? ':' + port : ''), protocol });
+            links.push({
+              url: normalized, name: server + (port ? ':' + port : ''), protocol,
+              server: server.trim(), port, pingStatus: port ? 'checking' : 'unknown', latencyMs: null
+            });
           } catch (_) { /* Пропускаем некорректные строки. */ }
         }
       }
@@ -567,8 +592,14 @@
       name.textContent = proxy.name;
       name.title = proxy.name;
       const caption = document.createElement('div');
-      caption.className = 'server-caption';
-      caption.textContent = 'ССЫЛКА ИЗ КАТАЛОГА · СТАТУС НЕ ПРОВЕРЕН';
+      const pingStatus = proxy.pingStatus || 'checking';
+      caption.className = 'server-caption server-status status-' + pingStatus;
+      caption.textContent = pingStatus === 'online'
+        ? 'TCP ПОРТ ОТВЕЧАЕТ · ' + proxy.latencyMs + ' МС'
+        : pingStatus === 'offline' ? 'TCP НЕТ ОТВЕТА'
+        : pingStatus === 'unknown' ? 'НЕТ ДАННЫХ ДЛЯ TCP-ПРОВЕРКИ'
+        : 'ПРОВЕРЯЕМ TCP…';
+      caption.title = 'Измеряется время установки TCP-соединения. Это не гарантирует работу самого прокси в Telegram.';
 
       const bottom = document.createElement('div');
       bottom.className = 'card-bottom';
@@ -636,7 +667,14 @@
       $('#filter-mtproto').textContent = String(count('MTProto'));
       $('#filter-socks').textContent = String(count('SOCKS5 (TG)'));
       $('#filter-web').textContent = String(count('WEB (TG)'));
-      $('#results-label').innerHTML = '<strong>' + filtered.length + '</strong> из <strong>' + proxies.length + '</strong> серверов';
+      const tcpOnline = proxies.filter(proxy => proxy.pingStatus === 'online').length;
+      const tcpOffline = proxies.filter(proxy => proxy.pingStatus === 'offline').length;
+      const tcpChecking = proxies.filter(proxy => proxy.pingStatus === 'checking').length;
+      const tcpUnknown = proxies.filter(proxy => proxy.pingStatus === 'unknown').length;
+      $('#results-label').innerHTML = '<strong>' + filtered.length + '</strong> из <strong>' + proxies.length
+        + '</strong> серверов · TCP: <strong>' + tcpOnline + '</strong> отвечают · <strong>' + tcpOffline
+        + '</strong> без ответа · <strong>' + tcpChecking + '</strong> проверяются'
+        + (tcpUnknown ? ' · <strong>' + tcpUnknown + '</strong> без проверки' : '');
 
       const list = $('#proxy-list');
       list.replaceChildren();
@@ -698,6 +736,69 @@
       });
     }
 
+    function proxyTargetKey(server, port) {
+      return String(server).trim().toLowerCase() + '|' + String(port);
+    }
+
+    async function checkProxyStatuses(snapshot) {
+      const targetMap = new Map();
+      snapshot.forEach(proxy => {
+        const port = Number(proxy.port);
+        if (!proxy.server || !Number.isInteger(port) || port < 1 || port > 65535) {
+          proxy.pingStatus = 'unknown';
+          return;
+        }
+        const key = proxyTargetKey(proxy.server, port);
+        if (!targetMap.has(key)) targetMap.set(key, { server: proxy.server, port, proxies: [] });
+        targetMap.get(key).proxies.push(proxy);
+      });
+
+      const targets = Array.from(targetMap.values());
+      const batches = [];
+      for (let i = 0; i < targets.length; i += 24) batches.push(targets.slice(i, i + 24));
+      let nextBatch = 0;
+
+      async function runBatchWorker() {
+        while (nextBatch < batches.length) {
+          const batch = batches[nextBatch++];
+          try {
+            const response = await fetch('/api/proxy-status', {
+              method: 'POST',
+              cache: 'no-store',
+              credentials: 'same-origin',
+              headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+              body: JSON.stringify({ targets: batch.map(item => ({ server: item.server, port: item.port })) })
+            });
+            if (!response.ok) throw new Error('TCP status request failed');
+            const data = await response.json();
+            if (!Array.isArray(data.results)) throw new Error('Invalid TCP status response');
+
+            const received = new Set();
+            data.results.forEach(result => {
+              const key = proxyTargetKey(result.server, result.port);
+              const item = targetMap.get(key);
+              if (!item) return;
+              const status = ['online', 'offline', 'unknown'].includes(result.status) ? result.status : 'unknown';
+              item.proxies.forEach(proxy => {
+                proxy.pingStatus = status;
+                proxy.latencyMs = Number.isFinite(result.latencyMs) ? result.latencyMs : null;
+              });
+              received.add(key);
+            });
+            batch.forEach(target => {
+              const key = proxyTargetKey(target.server, target.port);
+              if (!received.has(key)) target.proxies.forEach(proxy => { proxy.pingStatus = 'unknown'; });
+            });
+          } catch (_) {
+            batch.forEach(target => target.proxies.forEach(proxy => { proxy.pingStatus = 'unknown'; }));
+          }
+          render();
+        }
+      }
+
+      await Promise.all(Array.from({ length: Math.min(2, batches.length) }, () => runBatchWorker()));
+    }
+
     async function loadFeed() {
       const button = $('#refresh');
       button.disabled = true;
@@ -717,8 +818,9 @@
           $('#results-label').textContent = 'Список загружен · подходящих ссылок нет';
           showToast('Файл загружен, но ссылок не найдено');
         } else {
-          $('#results-label').textContent = `Загружено серверов · ${proxies.length}`;
+          $('#results-label').textContent = `Загружено серверов · ${proxies.length} · TCP-проверка запущена`;
           showToast(`Каталог обновлён · ${proxies.length} серверов`);
+          void checkProxyStatuses(proxies.slice());
         }
       } catch (error) {
         console.error('Не удалось загрузить proxies.txt:', error);
