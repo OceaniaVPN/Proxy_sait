@@ -13,14 +13,8 @@
     {
       "binding": "DB",
       "database_name": "steklovpn-shared",
-      "database_id": "PUT_D1_DATABASE_ID_HERE",
+      "database_id": "63c7e332-c9b9-47c5-8943-cf880287beb6",
       "migrations_dir": "migrations"
     }
-  ],
-  "secrets": {
-    "required": [
-      "ADMIN_PASSWORD",
-      "SESSION_SECRET"
-    ]
-  }
+  ]
 }
