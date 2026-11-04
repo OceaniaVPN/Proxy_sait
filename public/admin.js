@@ -34,7 +34,7 @@
     const active=[],settled=[];
     const cell=28;
     let width=0,height=0,pile=[],last=0,spawn=0,elapsed=0,ground=null;
-    layer.style.zIndex='45';
+    layer.style.zIndex='0';
     layer.style.pointerEvents='none';
     function resize(){
       width=window.innerWidth;height=window.innerHeight;
