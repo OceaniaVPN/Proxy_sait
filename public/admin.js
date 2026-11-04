@@ -18,10 +18,12 @@
   let effectKey='';
 
   function message(el,text,error){if(!el)return;el.textContent=text||'';el.classList.toggle('error',Boolean(error));}
-  let weatherFrame=0;
+  let weatherFrame=0, weatherCleanup=null;
   function makeWeather(season){
+    if(weatherCleanup){weatherCleanup();weatherCleanup=null;}
     const layer=document.getElementById('weather-layer'); if(!layer)return;
     if(weatherFrame)cancelAnimationFrame(weatherFrame);
+    weatherFrame=0;
     layer.replaceChildren();
     if(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)return;
     const canvas=document.createElement('canvas'); canvas.className='weather-canvas'; canvas.setAttribute('aria-hidden','true'); layer.append(canvas);
@@ -35,7 +37,7 @@
       canvas.style.width=w+'px'; canvas.style.height=h+'px';
       ctx.setTransform(dpr,0,0,dpr,0,0); pile=new Array(Math.ceil(w/cell)+2).fill(0);
     }
-    resize(); addEventListener('resize',resize,{passive:true});
+    resize(); const onResize=()=>resize(); addEventListener('resize',onResize,{passive:true});
     const ground=x=>h-pile[Math.max(0,Math.min(pile.length-1,Math.floor(x/cell)))];
     function addParticle(){
       if(particles.length>=cap)return;
@@ -68,7 +70,7 @@
       for(const p of settled)leaf(p,p.x,ground(p.x)-2,.76);
     }
     function tick(now){
-      if(document.hidden){last=now;weatherFrame=requestAnimationFrame(tick);return;}
+      if(document.hidden){last=now;weatherFrame=0;return;}
       const dt=Math.min(.034,Math.max(0,(now-(last||now))/1000));last=now;time+=dt;spawn+=dt*rate;
       while(spawn>=1){addParticle();spawn--;}
       ctx.clearRect(0,0,w,h);const wind=Math.sin(time*.31)*13+Math.sin(time*.13)*7;
@@ -86,7 +88,9 @@
       }
       drawPile();weatherFrame=requestAnimationFrame(tick);
     }
-    document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!weatherFrame){last=0;weatherFrame=requestAnimationFrame(tick);}});
+    const onVisibility=()=>{if(!document.hidden&&!weatherFrame){last=0;weatherFrame=requestAnimationFrame(tick);}};
+    document.addEventListener('visibilitychange',onVisibility);
+    weatherCleanup=()=>{removeEventListener('resize',onResize);document.removeEventListener('visibilitychange',onVisibility);if(weatherFrame)cancelAnimationFrame(weatherFrame);weatherFrame=0;};
     weatherFrame=requestAnimationFrame(tick);
   }
   function applySeason(season){
