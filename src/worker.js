@@ -11,6 +11,7 @@ const VALID_SEASONS = new Set(["spring", "summer", "autumn", "winter"]);
 const COOKIE_NAME = "steklovpn_admin";
 const SESSION_SECONDS = 8 * 60 * 60;
 const encoder = new TextEncoder();
+const TCP_PROBE_VERSION = "v2";
 
 function json(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
@@ -124,6 +125,7 @@ async function probeTcpTarget(target) {
       latencyMs: Math.max(1, Date.now() - startedAt)
     };
   } catch (_) {
+    console.warn("TCP probe failed:", target.server, target.port);
     return {
       server: target.server,
       port: target.port,
@@ -148,7 +150,8 @@ async function probeTcpTargets(targets) {
       results[index] = await probeTcpTarget(targets[index]);
     }
   };
-  const count = Math.min(12, targets.length);
+  // Keep below the Workers outbound-connection concurrency limit.
+  const count = Math.min(4, targets.length);
   await Promise.all(Array.from({ length: count }, () => worker()));
   return results;
 }
@@ -165,7 +168,7 @@ async function getProxyFeed(env) {
 }
 
 async function hashProxyFeed(feed) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(feed));
+  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(feed + "\n" + TCP_PROBE_VERSION));
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
@@ -392,11 +395,11 @@ export default {
     }
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   },
-  async scheduled(controller, env, ctx) {
-    ctx.waitUntil(
-      refreshProxyStatusCache(env).catch(error => {
-        console.error("Proxy status refresh failed:", error);
-      })
-    );
+  async scheduled(controller, env) {
+    // Await the job so Cron reports failures instead of silently swallowing them.
+    const result = await refreshProxyStatusCache(env);
+    if (result.changed) {
+      console.log("Proxy status cache refreshed:", result.targetCount, result.checkedAt);
+    }
   }
 };
