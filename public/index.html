@@ -375,6 +375,15 @@
     .weather-live { display:block; filter:drop-shadow(0 2px 5px rgba(0,0,0,.48)); }
     .weather-live-leaf { text-shadow:0 2px 8px rgba(255,172,89,.42); }
 
+
+    .orbit-satellite { display:block;width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px 2px var(--accent),0 0 22px var(--glow);z-index:4;pointer-events:none; }
+    .orbit-satellite.secondary { width:6px;height:6px;opacity:.9;background:#c8e7ff;box-shadow:0 0 8px 2px rgba(174,218,255,.7),0 0 18px rgba(174,218,255,.4); }
+    .scene .halo,.scene .core,.orb-area .orbit,.orb-area .orb { animation:none !important; }
+    .weather-layer { position:fixed !important; inset:0 !important; z-index:1 !important; pointer-events:none !important; overflow:hidden !important; }
+    .topbar, main, footer, .wrap { position:relative; z-index:2; }
+    .weather-live { display:block; filter:drop-shadow(0 2px 5px rgba(0,0,0,.48)); }
+    .weather-live-leaf { text-shadow:0 2px 8px rgba(255,172,89,.42); }
+
 </style>
 </head>
 <body>
@@ -410,6 +419,7 @@
         </div>
         <div class="orb-area" aria-hidden="true">
           <div class="orbit"></div><div class="orbit two"></div><div class="orbit three"></div>
+          <span class="orbit-satellite" data-radius="132" data-speed=".68" aria-hidden="true"></span><span class="orbit-satellite secondary" data-radius="103" data-speed="-.94" aria-hidden="true"></span>
           <span class="orbit-point p1"></span><span class="orbit-point p2"></span>
           <div class="orb">
             <svg viewBox="0 0 64 64" fill="none"><path d="M52.5 11.7 8.9 28.5c-3 1.2-3 3.2-.5 4l11.2 3.5 4.3 13.4c.5 1.5.3 2.1 1.9 2.1 1.2 0 1.7-.5 2.4-1.2l6.5-6.3 13.5 10c2.5 1.4 4.3.7 4.9-2.3l8-37.7c.8-3.7-1.4-5.4-3.6-4.3ZM22.8 35.2l25.9-16.3c1.3-.8 2.5-.4 1.5.5L28.8 39.7l-.8 8.5-5.2-13Z" fill="#244c36"/></svg>
