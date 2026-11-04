@@ -234,6 +234,19 @@
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
     }
+
+    /* Обновлённый каталог: категории, счётчики и понятные подписи */
+    .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .protocol-filters { display:flex; flex-wrap:wrap; gap:8px; margin:-2px 0 16px; }
+    .filter-chip { display:inline-flex; align-items:center; gap:8px; padding:8px 11px; border:1px solid var(--line); border-radius:9px; color:var(--muted); background:rgba(255,255,255,.02); font-size:10px; cursor:pointer; transition:border-color .18s,background .18s,color .18s; }
+    .filter-chip:hover { border-color:var(--line-strong); color:var(--text); }
+    .filter-chip.active { border-color:rgba(184,255,106,.32); color:var(--mint); background:rgba(184,255,106,.075); }
+    .filter-chip span { color:inherit; opacity:.8; font:10px 'DM Mono',monospace; }
+    .protocol-pill[data-protocol="MTProto"] { color:var(--mint); border-color:rgba(184,255,106,.24); background:rgba(184,255,106,.06); }
+    .protocol-pill[data-protocol="SOCKS5 (TG)"] { color:var(--blue); border-color:rgba(120,200,255,.23); background:rgba(120,200,255,.06); }
+    .protocol-pill[data-protocol="WEB (TG)"] { color:var(--violet); border-color:rgba(169,155,255,.24); background:rgba(169,155,255,.06); }
+    .server-caption { letter-spacing:.65px; }
+    @media(max-width:720px) { .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } .stat:first-child { grid-column:auto; } .protocol-filters { gap:6px; } .filter-chip { padding:8px 9px; } }
   </style>
 </head>
 <body>
@@ -255,20 +268,20 @@
   <main id="top" class="wrap">
     <section class="hero" aria-labelledby="hero-title">
       <div>
-        <div class="eyebrow">Telegram proxy network</div>
+        <div class="eyebrow">ПРОКСИ ДЛЯ TELEGRAM</div>
         <h1 id="hero-title">ТВОЙ ДОСТУП.<br><span class="gradient">ТВОИ ПРАВИЛА.</span></h1>
         <p class="hero-copy">Подборка Telegram-прокси в одном месте. <strong>Открой каталог, найди сервер и подключись в Telegram</strong> — список обновляется прямо из GitHub, без ручной загрузки файлов на сайте.</p>
         <div class="hero-actions">
           <a class="btn btn-primary" href="#catalog">Смотреть каталог <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
           <a class="btn" href="https://github.com/OceaniaVPN/Proxy_sait/blob/main/proxies.txt" target="_blank" rel="noopener noreferrer">Открыть proxies.txt <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></a>
         </div>
-        <div class="hero-note"><span class="dot"></span> Один источник данных · GitHub / proxies.txt</div>
+        <div class="hero-note"><span class="dot"></span> Один источник данных · файл proxies.txt</div>
       </div>
 
       <div class="visual-card" aria-label="Карточка источника Telegram Proxy">
         <div class="visual-top">
-          <span class="visual-label">NETWORK OVERVIEW / 01</span>
-          <span class="live-pill"><span class="status-dot"></span> GITHUB FEED</span>
+          <span class="visual-label">ОБЗОР КАТАЛОГА</span>
+          <span class="live-pill"><span class="status-dot"></span> СПИСОК СЕРВЕРОВ</span>
         </div>
         <div class="orb-area" aria-hidden="true">
           <div class="orbit"></div><div class="orbit two"></div><div class="orbit three"></div>
@@ -278,22 +291,23 @@
           </div>
         </div>
         <div class="visual-bottom">
-          <div class="visual-metric"><span>PROTOCOL</span><strong>MTProto / Telegram</strong></div>
-          <div class="visual-metric"><span>DATA SOURCE</span><strong>GitHub · TXT</strong></div>
+          <div class="visual-metric"><span>ТИПЫ ПРОКСИ</span><strong>Три протокола Telegram</strong></div>
+          <div class="visual-metric"><span>ФАЙЛ СО СПИСКОМ</span><strong>proxies.txt</strong></div>
         </div>
       </div>
     </section>
 
     <section class="stats" aria-label="Статистика каталога">
-      <div class="stat"><div class="stat-label">Серверов в каталоге</div><strong class="stat-value" id="stat-total">—</strong></div>
-      <div class="stat"><div class="stat-label">Протокол</div><strong class="stat-value small">MTProto</strong></div>
-      <div class="stat"><div class="stat-label">Источник</div><strong class="stat-value small">GitHub TXT</strong></div>
+      <div class="stat"><div class="stat-label">Всего серверов</div><strong class="stat-value" id="stat-total">—</strong></div>
+      <div class="stat"><div class="stat-label">MTProto</div><strong class="stat-value" id="stat-mtproto">—</strong></div>
+      <div class="stat"><div class="stat-label">SOCKS5 (TG)</div><strong class="stat-value" id="stat-socks">—</strong></div>
+      <div class="stat"><div class="stat-label">WEB (TG)</div><strong class="stat-value" id="stat-web">—</strong></div>
     </section>
 
     <section class="section" id="catalog" aria-labelledby="catalog-title">
       <div class="section-head">
         <div>
-          <div class="section-kicker">THE SERVER LIST</div>
+          <div class="section-kicker">СПИСОК СЕРВЕРОВ</div>
           <h2 id="catalog-title">Каталог прокси<span style="color:var(--mint)">.</span></h2>
           <div class="section-sub">Выбирай сервер и открывай подключение в Telegram.</div>
         </div>
@@ -314,8 +328,14 @@
             <option value="name-desc">Сначала Я → А</option>
           </select>
         </div>
+        <div class="protocol-filters" id="protocol-filters" aria-label="Фильтр по протоколу">
+          <button type="button" class="filter-chip active" data-protocol="all" aria-pressed="true">Все серверы <span id="filter-all">0</span></button>
+          <button type="button" class="filter-chip" data-protocol="MTProto" aria-pressed="false">MTProto <span id="filter-mtproto">0</span></button>
+          <button type="button" class="filter-chip" data-protocol="SOCKS5 (TG)" aria-pressed="false">SOCKS5 (TG) <span id="filter-socks">0</span></button>
+          <button type="button" class="filter-chip" data-protocol="WEB (TG)" aria-pressed="false">WEB (TG) <span id="filter-web">0</span></button>
+        </div>
         <div class="catalog-meta">
-          <span id="results-label">Подключение к источнику GitHub…</span>
+          <span id="results-label">Загружаем серверы из proxies.txt…</span>
           <a class="source-link" id="source" href="https://github.com/OceaniaVPN/Proxy_sait/blob/main/proxies.txt" target="_blank" rel="noopener noreferrer">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
             ИСТОЧНИК: PROXIES.TXT
@@ -329,8 +349,8 @@
   </main>
 
   <footer class="footline wrap">
-    <div><strong>PROXYSAIT</strong> <span>· TELEGRAM PROXY DIRECTORY</span></div>
-    <div class="foot-right"><span>Данные: GitHub / proxies.txt</span><a href="https://github.com/OceaniaVPN/Proxy_sait" target="_blank" rel="noopener noreferrer">Репозиторий ↗</a></div>
+    <div><strong>PROXYSAIT</strong> <span>· КАТАЛОГ TELEGRAM-ПРОКСИ</span></div>
+    <div class="foot-right"><span>Источник: proxies.txt</span><a href="https://github.com/OceaniaVPN/Proxy_sait" target="_blank" rel="noopener noreferrer">Репозиторий ↗</a></div>
   </footer>
   <div class="toast" id="toast" role="status" aria-live="polite"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6"/></svg><span id="toast-text">Ссылка скопирована</span></div>
 
@@ -350,29 +370,43 @@
     }
 
     function getServerName(url) {
-      return url.searchParams.get('server') || 'Telegram Proxy';
+      const server = url.searchParams.get('server') || (url.protocol === 'socks5:' ? url.hostname : 'Telegram Proxy');
+      const port = url.searchParams.get('port') || url.port;
+      return server + (port ? ':' + port : '');
     }
 
     function extractProxyLinks(text) {
       const links = [];
       const seen = new Set();
+      const pattern = /(?:tg:\/\/(?:proxy|socks)\?[^\s"'<>]+|https?:\/\/t\.me\/(?:proxy|socks|webproxy)\?[^\s"'<>]+|socks5:\/\/[^\s"'<>]+)/gi;
       for (const rawLine of text.split(/\r?\n/)) {
         const line = rawLine.trim();
-        if (!line || line.startsWith('#')) continue;
-        const matches = line.match(/https?:\/\/t\.me\/webproxy\?[^\s"'<>]+/gi) || [];
+        if (!line || line.startsWith('#') || line.startsWith('//')) continue;
+        const matches = line.match(pattern) || [];
         for (let candidate of matches) {
           candidate = candidate.replace(/[),.;\]}]+$/g, '');
           try {
             const url = new URL(candidate);
-            const valid = url.protocol === 'https:' && url.hostname.toLowerCase() === 't.me'
-              && url.pathname === '/webproxy' && url.searchParams.has('server')
-              && url.searchParams.has('secret');
-            if (!valid) continue;
+            let kind = '';
+            if (url.protocol === 'tg:' && ['proxy', 'socks'].includes(url.hostname.toLowerCase())) {
+              kind = url.hostname.toLowerCase();
+            } else if (url.protocol === 'https:' && url.hostname.toLowerCase() === 't.me'
+              && ['/proxy', '/socks', '/webproxy'].includes(url.pathname.toLowerCase())) {
+              kind = url.pathname.slice(1).toLowerCase();
+            } else if (url.protocol === 'socks5:') {
+              kind = 'socks5';
+            }
+            const protocol = kind === 'proxy' ? 'MTProto'
+              : (kind === 'socks' || kind === 'socks5') ? 'SOCKS5 (TG)'
+              : kind === 'webproxy' ? 'WEB (TG)' : '';
+            const server = url.searchParams.get('server') || (url.protocol === 'socks5:' ? url.hostname : '');
+            const port = url.searchParams.get('port') || url.port;
+            if (!protocol || !server || (protocol !== 'WEB (TG)' && !port)) continue;
             const normalized = url.toString();
             if (seen.has(normalized)) continue;
             seen.add(normalized);
-            links.push({ url: normalized, name: getServerName(url) });
-          } catch (_) { /* Игнорируем некорректные строки. */ }
+            links.push({ url: normalized, name: server + (port ? ':' + port : ''), protocol });
+          } catch (_) { /* Пропускаем некорректные строки. */ }
         }
       }
       return links;
@@ -392,10 +426,11 @@
       top.className = 'card-top';
       const node = document.createElement('span');
       node.className = 'node-id';
-      node.textContent = `NODE / ${String(index + 1).padStart(2, '0')}`;
+      node.textContent = 'СЕРВЕР №' + String(index + 1).padStart(2, '0');
       const pill = document.createElement('span');
       pill.className = 'protocol-pill';
-      pill.textContent = 'MTPROTO';
+      pill.textContent = proxy.protocol;
+      pill.dataset.protocol = proxy.protocol;
       top.append(node, pill);
 
       const name = document.createElement('h3');
@@ -404,7 +439,7 @@
       name.title = proxy.name;
       const caption = document.createElement('div');
       caption.className = 'server-caption';
-      caption.textContent = 'TELEGRAM PROXY SERVER';
+      caption.textContent = 'ССЫЛКА ИЗ КАТАЛОГА · СТАТУС НЕ ПРОВЕРЕН';
 
       const bottom = document.createElement('div');
       bottom.className = 'card-bottom';
@@ -449,17 +484,28 @@
       return article;
     }
 
+    let activeProtocol = 'all';
+
     function render() {
       const query = $('#search').value.trim().toLocaleLowerCase('ru');
       const direction = $('#sort').value;
       const rows = proxies
-        .filter(proxy => `${proxy.name} ${proxy.url}`.toLocaleLowerCase('ru').includes(query))
+        .filter(proxy => (activeProtocol === 'all' || proxy.protocol === activeProtocol)
+          && (proxy.name + ' ' + proxy.url).toLocaleLowerCase('ru').includes(query))
         .sort((a, b) => direction === 'name-desc'
           ? b.name.localeCompare(a.name, 'ru')
           : a.name.localeCompare(b.name, 'ru'));
 
+      const count = protocol => proxies.filter(proxy => proxy.protocol === protocol).length;
       $('#stat-total').textContent = String(proxies.length);
-      $('#results-label').innerHTML = `<strong>${rows.length}</strong> из <strong>${proxies.length}</strong> серверов`;
+      $('#stat-mtproto').textContent = String(count('MTProto'));
+      $('#stat-socks').textContent = String(count('SOCKS5 (TG)'));
+      $('#stat-web').textContent = String(count('WEB (TG)'));
+      $('#filter-all').textContent = String(proxies.length);
+      $('#filter-mtproto').textContent = String(count('MTProto'));
+      $('#filter-socks').textContent = String(count('SOCKS5 (TG)'));
+      $('#filter-web').textContent = String(count('WEB (TG)'));
+      $('#results-label').innerHTML = '<strong>' + rows.length + '</strong> из <strong>' + proxies.length + '</strong> серверов';
       const list = $('#proxy-list');
       list.replaceChildren();
 
@@ -469,13 +515,17 @@
         state.style.gridColumn = '1 / -1';
         const inner = document.createElement('div');
         const icon = makeIcon('<div class="state-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></svg></div>');
-        const title = document.createElement('h3'); title.textContent = proxies.length ? 'Ничего не найдено' : 'В каталоге пока пусто';
-        const copy = document.createElement('p'); copy.textContent = proxies.length ? 'Измени поисковый запрос — серверы с таким названием не найдены.' : 'Добавь Telegram-ссылки в файл proxies.txt в корне GitHub-репозитория. Каждая ссылка — с новой строки. Посетители сайта не могут загружать или менять этот файл.';
+        const title = document.createElement('h3');
+        title.textContent = proxies.length ? 'Ничего не найдено' : 'В каталоге пока пусто';
+        const copy = document.createElement('p');
+        copy.textContent = proxies.length
+          ? 'Измени запрос или выбери другую категорию.'
+          : 'Добавь Telegram-ссылки в корневой файл proxies.txt — по одной на строку.';
         inner.append(icon, title, copy);
         if (!proxies.length) {
           const link = document.createElement('a');
           link.href = REPO_FILE_URL; link.target = '_blank'; link.rel = 'noopener noreferrer';
-          link.className = 'btn'; link.style.marginTop = '15px'; link.textContent = 'Открыть proxies.txt на GitHub';
+          link.className = 'btn'; link.style.marginTop = '15px'; link.textContent = 'Открыть proxies.txt';
           inner.append(link);
         }
         state.append(inner); list.append(state); return;
@@ -489,7 +539,7 @@
       button.style.opacity = '.65';
       const previous = button.innerHTML;
       button.innerHTML = '<span class="spinner" style="width:13px;height:13px;border-width:1.5px"></span> Загрузка';
-      $('#results-label').textContent = 'Синхронизация с GitHub…';
+      $('#results-label').textContent = 'Читаем файл proxies.txt…';
       try {
         const response = await fetch(`${FEED_URL}?_=${Date.now()}`, {
           method: 'GET', cache: 'no-store', headers: { 'Accept': 'text/plain' }
@@ -502,7 +552,7 @@
           $('#results-label').textContent = 'Файл найден · подходящих ссылок нет';
           showToast('Файл загружен, но ссылок не найдено');
         } else {
-          $('#results-label').textContent = `Синхронизировано с GitHub · ${proxies.length} серверов`;
+          $('#results-label').textContent = `Загружено серверов · ${proxies.length}`;
           showToast(`Каталог обновлён · ${proxies.length} серверов`);
         }
       } catch (error) {
@@ -516,8 +566,8 @@
         const title = document.createElement('h3'); title.textContent = error.message === 'NOT_FOUND' ? 'Файл proxies.txt не найден' : 'Не удалось загрузить список';
         const message = document.createElement('p');
         message.textContent = error.message === 'NOT_FOUND'
-          ? 'Создай файл proxies.txt в корне репозитория OceaniaVPN/Proxy_sait (ветка main) и добавь в него Telegram-ссылки — по одной на строку.'
-          : 'Проверь доступность GitHub и попробуй обновить каталог ещё раз. Список берётся только из GitHub, локальная загрузка отключена.';
+          ? 'Убедись, что файл proxies.txt находится в корне проекта и содержит Telegram-ссылки — по одной на строку.'
+          : 'Проверь интернет-соединение и попробуй обновить каталог ещё раз. Данные загружаются из файла proxies.txt.';
         const link = document.createElement('a');
         link.href = REPO_FILE_URL; link.target = '_blank'; link.rel = 'noopener noreferrer';
         link.className = 'btn'; link.style.marginTop = '15px'; link.textContent = 'Открыть файл на GitHub';
@@ -533,6 +583,17 @@
 
     $('#search').addEventListener('input', render);
     $('#sort').addEventListener('change', render);
+    $('#protocol-filters').addEventListener('click', event => {
+      const button = event.target.closest('[data-protocol]');
+      if (!button) return;
+      activeProtocol = button.dataset.protocol;
+      document.querySelectorAll('[data-protocol]').forEach(item => {
+        const selected = item.dataset.protocol === activeProtocol;
+        item.classList.toggle('active', selected);
+        item.setAttribute('aria-pressed', String(selected));
+      });
+      render();
+    });
     $('#refresh').addEventListener('click', loadFeed);
     loadFeed();
   </script>
