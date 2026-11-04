@@ -299,7 +299,7 @@
     .admin-season[aria-pressed="true"] { border-color:var(--mint); color:var(--mint); background:rgba(184,255,106,.08); }
     .admin-logout { margin-top:14px; padding:8px 0; border:0; color:var(--muted); background:none; cursor:pointer; font-size:10px; }
     @media(max-width:600px) { .profile-button, .nav .profile-button { width:37px; height:37px; padding:0; border-radius:50%; } }
-    @media(prefers-reduced-motion:reduce) { .weather-layer { display:none; } }
+    @media(prefers-reduced-motion:reduce) { .weather-canvas { opacity:.9; } }
   
     /* Плавные орбиты вокруг центрального объекта */
     .orb-area { perspective:900px; }
@@ -320,6 +320,28 @@
     .weather-canvas { position:absolute; inset:0; display:block; width:100%; height:100%; }
     .topbar, main, footer, .wrap { position:relative; z-index:3; }
     @media(prefers-reduced-motion:reduce) { .orbit,.orbit.two,.orbit.three,.orb,.orbit-point,.live-pill { animation:none!important; } }
+
+
+    /* Скрытая мини-игра: пять быстрых нажатий на логотип */
+    .game-modal { position:fixed; inset:0; z-index:100; display:grid; place-items:center; padding:16px; background:rgba(2,6,11,.82); backdrop-filter:blur(14px); }
+    .game-modal[hidden] { display:none!important; }
+    .game-dialog { width:min(500px,100%); max-height:92dvh; overflow:auto; padding:20px; border:1px solid var(--line-strong); border-radius:24px; color:var(--text); background:linear-gradient(145deg,#192433,#0b111a); box-shadow:0 28px 100px rgba(0,0,0,.58); }
+    .game-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .game-head h2 { margin:0; font:700 21px 'Space Grotesk',sans-serif; letter-spacing:-.7px; }
+    .game-close { width:36px; height:36px; flex:none; border:1px solid var(--line); border-radius:50%; color:var(--muted); background:transparent; font-size:22px; cursor:pointer; }
+    .game-copy { margin:8px 0 15px; color:var(--muted); font-size:12px; }
+    .game-stats { display:flex; gap:10px; margin-bottom:11px; }
+    .game-stat { flex:1; padding:9px 12px; border:1px solid var(--line); border-radius:12px; background:rgba(255,255,255,.035); color:var(--muted); font-size:10px; }
+    .game-stat strong { display:block; margin-top:2px; color:var(--text); font:700 21px 'Space Grotesk'; }
+    .game-arena { position:relative; height:min(42vh,300px); min-height:220px; overflow:hidden; border:1px solid rgba(220,232,246,.14); border-radius:17px; background:radial-gradient(ellipse at 50% 110%,rgba(230,160,106,.14),transparent 56%),linear-gradient(160deg,rgba(22,34,49,.96),rgba(8,14,22,.98)); touch-action:manipulation; }
+    .game-target { position:absolute; left:var(--gx); top:var(--gy); z-index:1; display:grid; place-items:center; width:48px; height:48px; padding:0; border:1px solid rgba(255,224,177,.27); border-radius:15px; color:#fff; background:rgba(230,160,106,.13); box-shadow:0 7px 22px rgba(0,0,0,.22),0 0 20px rgba(230,160,106,.12); font-size:27px; transform:translate(-50%,-50%); cursor:pointer; animation:game-target-float 1.8s ease-in-out infinite; touch-action:manipulation; }
+    .game-target:active { scale:.84; }
+    .game-arena-hint { position:absolute; inset:0; display:grid; place-items:center; padding:20px; color:var(--muted); text-align:center; font-size:12px; pointer-events:none; }
+    .game-actions { display:flex; align-items:center; gap:12px; margin-top:13px; }
+    .game-start { min-height:44px; padding:0 19px; border:0; border-radius:12px; color:var(--accent-ink,#17110b); background:linear-gradient(110deg,var(--accent-2,#f0c184),var(--accent,#e6a06a)); font-weight:800; cursor:pointer; }
+    .game-status { flex:1; margin:0; color:var(--muted); font-size:11px; }
+    @keyframes game-target-float { 0%,100% { translate:0 0; rotate:-8deg; } 50% { translate:0 -8px; rotate:9deg; } }
+    @media(prefers-reduced-motion:reduce) { .game-target { animation:none; } }
 
 </style>
 </head>
@@ -727,6 +749,28 @@
       <p class="admin-message" id="admin-login-message" role="status" aria-live="polite"></p>
     </div>
   </section>
+  
+  <section class="game-modal" id="easter-game-modal" hidden aria-hidden="true">
+    <div class="game-dialog" role="dialog" aria-modal="true" aria-labelledby="easter-game-title">
+      <div class="game-head">
+        <h2 id="easter-game-title">Сезонная охота</h2>
+        <button class="game-close" id="easter-game-close" type="button" aria-label="Закрыть">×</button>
+      </div>
+      <p class="game-copy">Поймай как можно больше сезонных частиц за 20 секунд. Они не стоят на месте!</p>
+      <div class="game-stats">
+        <div class="game-stat">СОБРАНО<strong id="easter-game-score">0</strong></div>
+        <div class="game-stat">ВРЕМЯ<strong id="easter-game-time">20</strong></div>
+      </div>
+      <div class="game-arena" id="easter-game-arena">
+        <div class="game-arena-hint" id="easter-game-hint">Нажми «Начать игру», чтобы открыть сезонную охоту.</div>
+      </div>
+      <div class="game-actions">
+        <button class="game-start" id="easter-game-start" type="button">Начать игру</button>
+        <p class="game-status" id="easter-game-status" role="status" aria-live="polite">Секрет STEKLOVPN найден ✦</p>
+      </div>
+    </div>
+  </section>
+
   <script src="/admin.js" defer></script>
 </body>
 </html>
