@@ -123,7 +123,7 @@ async function handleApi(request, env, url) {
       return json({ error: "Неверный пароль." }, 401);
     }
     await env.DB.prepare("DELETE FROM admin_login_attempts WHERE ip_hash = ?").bind(ipHash).run();
-    return json({ authenticated: true }, 200, { "Set-Cookie": sessionCookie(await createSession(env.ADMIN_PASSWORD)) });
+    return json({ authenticated: true }, 200, { "Set-Cookie": sessionCookie(await createSession(env.SESSION_SECRET)) });
   }
 
   if (path === "/api/admin/logout" && method === "POST") {
