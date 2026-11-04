@@ -1,3 +1,4 @@
+import { connect } from "cloudflare:sockets";
 const SECURITY_HEADERS = {
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
@@ -75,10 +76,140 @@ function sessionCookie(token) {
 function expiredCookie() {
   return COOKIE_NAME + "=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0";
 }
+function proxyTargetKey(server, port) {
+  return String(server).trim().toLowerCase() + "|" + String(port);
+}
+
+function extractAllowedProxyTargets(feed) {
+  const targets = new Map();
+  const pattern = /(?:tg:\/\/(?:proxy|socks)\?[^\s"'<>]+|https?:\/\/t\.me\/(?:proxy|socks|webproxy)\?[^\s"'<>]+|socks5:\/\/[^\s"'<>]+)/gi;
+  for (const rawLine of feed.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#") || line.startsWith("//")) continue;
+    const matches = line.match(pattern) || [];
+    for (let candidate of matches) {
+      candidate = candidate.replace(/[),.;\]}]+$/g, "");
+      try {
+        const parsed = new URL(candidate);
+        const server = parsed.searchParams.get("server") || (parsed.protocol === "socks5:" ? parsed.hostname : "");
+        const rawPort = parsed.searchParams.get("port") || parsed.port;
+        const port = rawPort ? Number(rawPort) : (parsed.protocol === "https:" && parsed.pathname.toLowerCase() === "/webproxy" ? 443 : 0);
+        if (!server || !Number.isInteger(port) || port < 1 || port > 65535) continue;
+        const target = { server: server.trim(), port };
+        targets.set(proxyTargetKey(target.server, target.port), target);
+      } catch (_) {
+        // Пропускаем некорректные строки из списка.
+      }
+    }
+  }
+  return targets;
+}
+
+async function probeTcpTarget(target) {
+  const startedAt = Date.now();
+  let socket = null;
+  let timer = null;
+  try {
+    socket = connect({ hostname: target.server, port: target.port });
+    await Promise.race([
+      socket.opened,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("TCP timeout")), 1800);
+      })
+    ]);
+    return {
+      server: target.server,
+      port: target.port,
+      status: "online",
+      latencyMs: Math.max(1, Date.now() - startedAt)
+    };
+  } catch (_) {
+    return {
+      server: target.server,
+      port: target.port,
+      status: "offline",
+      latencyMs: null
+    };
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+    if (socket) {
+      try { await socket.close(); } catch (_) {}
+    }
+  }
+}
+
+async function probeTcpTargets(targets) {
+  const results = new Array(targets.length);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (true) {
+      const index = nextIndex++;
+      if (index >= targets.length) return;
+      results[index] = await probeTcpTarget(targets[index]);
+    }
+  };
+  const count = Math.min(12, targets.length);
+  await Promise.all(Array.from({ length: count }, () => worker()));
+  return results;
+}
+
+async function handleProxyStatus(request, env, url) {
+  if (!sameOrigin(request, url)) return json({ error: "Origin check failed." }, 403);
+  if (!env.ASSETS) return json({ error: "Assets binding is not configured." }, 503);
+
+  let raw;
+  try {
+    raw = await request.text();
+    if (raw.length > 8000) return json({ error: "Некорректный запрос." }, 413);
+  } catch (_) {
+    return json({ error: "Некорректный запрос." }, 400);
+  }
+
+  let body;
+  try { body = JSON.parse(raw); } catch (_) {
+    return json({ error: "Некорректный запрос." }, 400);
+  }
+  if (!Array.isArray(body?.targets) || body.targets.length < 1 || body.targets.length > 24) {
+    return json({ error: "Некорректный список серверов." }, 400);
+  }
+
+  let feedResponse;
+  try {
+    feedResponse = await env.ASSETS.fetch(new Request(new URL("/proxies.txt", url), {
+      method: "GET",
+      headers: { "Accept": "text/plain" }
+    }));
+  } catch (_) {
+    return json({ error: "Не удалось получить список серверов." }, 503);
+  }
+  if (!feedResponse.ok) return json({ error: "Не удалось получить список серверов." }, 503);
+
+  const allowed = extractAllowedProxyTargets(await feedResponse.text());
+  const requested = new Map();
+  const unverified = [];
+  for (const item of body.targets) {
+    const server = typeof item?.server === "string" ? item.server.trim() : "";
+    const port = Number(item?.port);
+    if (!server || server.length > 253 || !Number.isInteger(port) || port < 1 || port > 65535) {
+      return json({ error: "Некорректный адрес сервера." }, 400);
+    }
+    const key = proxyTargetKey(server, port);
+    if (requested.has(key)) continue;
+    if (allowed.has(key)) requested.set(key, allowed.get(key));
+    else unverified.push({ server, port, status: "unknown", latencyMs: null });
+  }
+
+  const checked = await probeTcpTargets(Array.from(requested.values()));
+  return json({ results: checked.concat(unverified) });
+}
+
 async function handleApi(request, env, url) {
-  if (!env.DB) return json({ error: "Database binding DB is not configured." }, 503);
   const path = url.pathname;
   const method = request.method;
+  if (path === "/api/proxy-status" && method === "POST") {
+    return handleProxyStatus(request, env, url);
+  }
+  if (!env.DB) return json({ error: "Database binding DB is not configured." }, 503);
 
   if (path === "/api/season" && method === "GET") {
     const row = await env.DB.prepare(
