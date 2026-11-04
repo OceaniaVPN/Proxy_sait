@@ -29,7 +29,7 @@
     const canvas=document.createElement('canvas'); canvas.className='weather-canvas'; canvas.setAttribute('aria-hidden','true'); layer.append(canvas);
     const ctx=canvas.getContext('2d',{alpha:true}); if(!ctx)return;
     const particles=[], settled=[], cell=9, mobile=matchMedia('(max-width:640px)').matches;
-    const cap=mobile?26:46, rate=mobile?1.65:2.35;
+    const cap=mobile?36:66, rate=mobile?2.6:3.4;
     let w=0,h=0,dpr=1,pile=[],last=0,spawn=0,time=0;
     function resize(){
       w=innerWidth; h=innerHeight; dpr=Math.min(devicePixelRatio||1,mobile?1.35:1.6);
@@ -44,9 +44,9 @@
       let kind=season;
       if(season==='autumn')kind=Math.random()<.82?'leaf':'rain';
       particles.push({kind,x:Math.random()*w,y:-12-Math.random()*28,vx:(Math.random()-.5)*20,vy:8+Math.random()*18,
-        size:kind==='snow'?2+Math.random()*3:kind==='rain'?7+Math.random()*8:5+Math.random()*8,
+        size:kind==='snow'?2+Math.random()*3:kind==='rain'?7+Math.random()*8:7+Math.random()*8,
         a:Math.random()*Math.PI*2,spin:(Math.random()-.5)*(kind==='leaf'?4.2:2.2),
-        sway:10+Math.random()*30,phase:Math.random()*8,alpha:.34+Math.random()*.48});
+        sway:10+Math.random()*30,phase:Math.random()*8,alpha:.54+Math.random()*.38});
     }
     function settle(p){
       if(p.kind==='rain'||p.kind==='summer')return;
