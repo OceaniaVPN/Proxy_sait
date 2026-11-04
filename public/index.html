@@ -741,62 +741,46 @@
     }
 
     async function checkProxyStatuses(snapshot) {
-      const targetMap = new Map();
-      snapshot.forEach(proxy => {
-        const port = Number(proxy.port);
-        if (!proxy.server || !Number.isInteger(port) || port < 1 || port > 65535) {
-          proxy.pingStatus = 'unknown';
-          return;
-        }
-        const key = proxyTargetKey(proxy.server, port);
-        if (!targetMap.has(key)) targetMap.set(key, { server: proxy.server, port, proxies: [] });
-        targetMap.get(key).proxies.push(proxy);
-      });
+      // Получаем только готовые результаты из D1. Никаких TCP-проверок в запросе посетителя.
+      try {
+        const response = await fetch('/api/proxy-status', {
+          method: 'GET',
+          cache: 'no-store',
+          credentials: 'same-origin',
+          headers: { 'Accept': 'application/json' }
+        });
+        if (!response.ok) throw new Error('Cached proxy status unavailable');
+        const data = await response.json();
+        const statusMap = new Map(
+          (Array.isArray(data.results) ? data.results : [])
+            .map(item => [proxyTargetKey(item.server, item.port), item])
+        );
 
-      const targets = Array.from(targetMap.values());
-      const batches = [];
-      for (let i = 0; i < targets.length; i += 24) batches.push(targets.slice(i, i + 24));
-      let nextBatch = 0;
-
-      async function runBatchWorker() {
-        while (nextBatch < batches.length) {
-          const batch = batches[nextBatch++];
-          try {
-            const response = await fetch('/api/proxy-status', {
-              method: 'POST',
-              cache: 'no-store',
-              credentials: 'same-origin',
-              headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-              body: JSON.stringify({ targets: batch.map(item => ({ server: item.server, port: item.port })) })
-            });
-            if (!response.ok) throw new Error('TCP status request failed');
-            const data = await response.json();
-            if (!Array.isArray(data.results)) throw new Error('Invalid TCP status response');
-
-            const received = new Set();
-            data.results.forEach(result => {
-              const key = proxyTargetKey(result.server, result.port);
-              const item = targetMap.get(key);
-              if (!item) return;
-              const status = ['online', 'offline', 'unknown'].includes(result.status) ? result.status : 'unknown';
-              item.proxies.forEach(proxy => {
-                proxy.pingStatus = status;
-                proxy.latencyMs = Number.isFinite(result.latencyMs) ? result.latencyMs : null;
-              });
-              received.add(key);
-            });
-            batch.forEach(target => {
-              const key = proxyTargetKey(target.server, target.port);
-              if (!received.has(key)) target.proxies.forEach(proxy => { proxy.pingStatus = 'unknown'; });
-            });
-          } catch (_) {
-            batch.forEach(target => target.proxies.forEach(proxy => { proxy.pingStatus = 'unknown'; }));
+        snapshot.forEach(proxy => {
+          const cached = statusMap.get(proxyTargetKey(proxy.server, proxy.port));
+          if (!cached) {
+            proxy.pingStatus = 'unknown';
+            proxy.latencyMs = null;
+            return;
           }
-          render();
-        }
-      }
+          proxy.pingStatus = ['online', 'offline'].includes(cached.status) ? cached.status : 'unknown';
+          proxy.latencyMs = Number.isFinite(cached.latencyMs) ? cached.latencyMs : null;
+        });
 
-      await Promise.all(Array.from({ length: Math.min(2, batches.length) }, () => runBatchWorker()));
+        if (data.checkedAt) {
+          const checkedDate = new Date(data.checkedAt);
+          const timeLabel = Number.isNaN(checkedDate.getTime())
+            ? '' : ' · проверено ' + checkedDate.toLocaleTimeString();
+          $('#results-label').dataset.statusCheckedAt = data.checkedAt;
+          $('#results-label').title = 'Результаты фоновой TCP-проверки' + timeLabel;
+        }
+      } catch (_) {
+        snapshot.forEach(proxy => {
+          proxy.pingStatus = 'unknown';
+          proxy.latencyMs = null;
+        });
+      }
+      render();
     }
 
     async function loadFeed() {
