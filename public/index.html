@@ -270,6 +270,7 @@
     .profile-button { display:grid; place-items:center; width:40px; height:40px; flex:none; border:1px solid var(--line-strong); border-radius:50%; color:var(--mint); background:rgba(255,255,255,.035); cursor:pointer; transition:.2s; }
     .profile-button:hover { transform:translateY(-2px); border-color:var(--mint); box-shadow:0 0 22px rgba(184,255,106,.12); }
     .profile-button svg { width:19px; height:19px; }
+    .nav .profile-button { display:grid; place-items:center; width:40px; height:40px; padding:0; border-radius:50%; }
     .weather-layer { position:fixed; inset:0; z-index:5; overflow:hidden; pointer-events:none; }
     .weather-particle { position:absolute; top:-8vh; left:var(--x); opacity:var(--opacity); font-size:var(--size); animation:weather-fall var(--duration) linear var(--delay) infinite; will-change:transform; }
     .weather-rain { width:1px; height:18px; border-radius:2px; background:linear-gradient(transparent,rgba(156,205,242,.75)); animation-name:weather-rainfall; }
@@ -297,7 +298,7 @@
     .admin-season { min-height:48px; border:1px solid var(--line); border-radius:11px; color:var(--text); background:rgba(255,255,255,.035); cursor:pointer; font-weight:700; }
     .admin-season[aria-pressed="true"] { border-color:var(--mint); color:var(--mint); background:rgba(184,255,106,.08); }
     .admin-logout { margin-top:14px; padding:8px 0; border:0; color:var(--muted); background:none; cursor:pointer; font-size:10px; }
-    @media(max-width:600px) { .profile-button { width:37px; height:37px; } }
+    @media(max-width:600px) { .profile-button, .nav .profile-button { width:37px; height:37px; padding:0; border-radius:50%; } }
     @media(prefers-reduced-motion:reduce) { .weather-layer { display:none; } }
   </style>
 </head>
