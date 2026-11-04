@@ -25,11 +25,11 @@
     if(weatherFrame)cancelAnimationFrame(weatherFrame);
     weatherFrame=0;
     layer.replaceChildren();
-    if(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)return;
+    const reducedMotion=Boolean(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     const canvas=document.createElement('canvas'); canvas.className='weather-canvas'; canvas.setAttribute('aria-hidden','true'); layer.append(canvas);
     const ctx=canvas.getContext('2d',{alpha:true}); if(!ctx)return;
     const particles=[], settled=[], cell=9, mobile=matchMedia('(max-width:640px)').matches;
-    const cap=mobile?36:66, rate=mobile?2.6:3.4;
+    const cap=reducedMotion?(mobile?14:22):(mobile?36:66), rate=reducedMotion?1.2:(mobile?2.6:3.4);
     let w=0,h=0,dpr=1,pile=[],last=0,spawn=0,time=0;
     function resize(){
       w=innerWidth; h=innerHeight; dpr=Math.min(devicePixelRatio||1,mobile?1.35:1.6);
@@ -42,8 +42,8 @@
     function addParticle(){
       if(particles.length>=cap)return;
       let kind=season;
-      if(season==='autumn')kind=Math.random()<.82?'leaf':'rain';
-      particles.push({kind,x:Math.random()*w,y:-12-Math.random()*28,vx:(Math.random()-.5)*20,vy:8+Math.random()*18,
+      if(season==='autumn')kind=Math.random()<.94?'leaf':'rain';
+      particles.push({kind,x:Math.random()*w,y:-12-Math.random()*28,vx:(Math.random()-.5)*20,vy:reducedMotion?3+Math.random()*6:8+Math.random()*18,
         size:kind==='snow'?2+Math.random()*3:kind==='rain'?7+Math.random()*8:7+Math.random()*8,
         a:Math.random()*Math.PI*2,spin:(Math.random()-.5)*(kind==='leaf'?4.2:2.2),
         sway:10+Math.random()*30,phase:Math.random()*8,alpha:.54+Math.random()*.38});
@@ -73,9 +73,9 @@
       if(document.hidden){last=now;weatherFrame=0;return;}
       const dt=Math.min(.034,Math.max(0,(now-(last||now))/1000));last=now;time+=dt;spawn+=dt*rate;
       while(spawn>=1){addParticle();spawn--;}
-      ctx.clearRect(0,0,w,h);const wind=Math.sin(time*.31)*13+Math.sin(time*.13)*7;
+      ctx.clearRect(0,0,w,h);const wind=(Math.sin(time*.31)*13+Math.sin(time*.13)*7)*(reducedMotion?.35:1);
       for(let i=particles.length-1;i>=0;i--){
-        const p=particles[i];p.phase+=dt;p.vy=Math.min(p.vy+(p.kind==='snow'?12:p.kind==='rain'?90:p.kind==='summer'?3:24)*dt,p.kind==='rain'?210:78);
+        const p=particles[i];p.phase+=dt;p.vy=Math.min(p.vy+(p.kind==='snow'?12:p.kind==='rain'?90:p.kind==='summer'?3:24)*dt*(reducedMotion?.42:1),p.kind==='rain'?210:(reducedMotion?28:78));
         p.vx+=(wind+Math.sin(p.phase*.9)*p.sway-p.vx)*dt*.16;p.x+=p.vx*dt;p.y+=p.vy*dt;p.a+=p.spin*dt;
         if(p.x< -24)p.x=w+20;if(p.x>w+24)p.x=-20;
         if(!['rain','summer'].includes(p.kind)&&p.y+p.size>=ground(p.x)){settle(p);particles.splice(i,1);continue;}
@@ -160,5 +160,84 @@
     try{await api('/api/admin/logout',{method:'POST'});}catch(_){}
     setAdminView(false);message(loginMessage,'Вы вышли из профиля.',false);
   });
+
+  // Секретная мини-игра: пять быстрых нажатий на логотип.
+  const gameModal=document.getElementById('easter-game-modal');
+  const gameClose=document.getElementById('easter-game-close');
+  const gameStart=document.getElementById('easter-game-start');
+  const gameArena=document.getElementById('easter-game-arena');
+  const gameHint=document.getElementById('easter-game-hint');
+  const gameScoreNode=document.getElementById('easter-game-score');
+  const gameTimeNode=document.getElementById('easter-game-time');
+  const gameStatus=document.getElementById('easter-game-status');
+  let gameScore=0,gameTime=20,gameRunning=false,gameSpawnTimer=0,gameClockTimer=0;
+  let brandHits=0,brandHitTimeout=0;
+
+  function stopMiniGame(){
+    gameRunning=false;
+    if(gameSpawnTimer)clearInterval(gameSpawnTimer);
+    if(gameClockTimer)clearInterval(gameClockTimer);
+    gameSpawnTimer=0;gameClockTimer=0;
+  }
+  function closeMiniGame(){
+    stopMiniGame();
+    if(gameModal){gameModal.hidden=true;gameModal.setAttribute('aria-hidden','true');}
+  }
+  function openMiniGame(){
+    if(!gameModal)return;
+    stopMiniGame();
+    gameScore=0;gameTime=20;
+    gameScoreNode.textContent='0';gameTimeNode.textContent='20';
+    gameArena.replaceChildren(gameHint);gameHint.hidden=false;
+    gameHint.textContent='Нажми «Начать игру», чтобы открыть сезонную охоту.';
+    gameStart.hidden=false;gameStart.textContent='Начать игру';
+    gameStatus.textContent='Секрет STEKLOVPN найден ✦';
+    gameModal.hidden=false;gameModal.setAttribute('aria-hidden','false');
+  }
+  function spawnGameTarget(){
+    if(!gameRunning||gameArena.querySelectorAll('.game-target').length>=9)return;
+    const target=document.createElement('button');
+    target.type='button';target.className='game-target';
+    target.setAttribute('aria-label','Поймать частицу');
+    const icons=currentSeason==='winter'?['❄️','✳️']:currentSeason==='spring'?['🌸','🌷']:currentSeason==='summer'?['✦','☀️']:['🍂','🍁'];
+    target.textContent=icons[Math.floor(Math.random()*icons.length)];
+    target.style.setProperty('--gx',(9+Math.random()*82)+'%');
+    target.style.setProperty('--gy',(13+Math.random()*72)+'%');
+    target.addEventListener('click',()=>{
+      if(!gameRunning)return;
+      gameScore++;gameScoreNode.textContent=String(gameScore);
+      target.remove();
+      if(gameScore===10)gameStatus.textContent='Отлично! Уже 10 частиц ✨';
+    });
+    gameArena.append(target);
+    window.setTimeout(()=>target.remove(),2800);
+  }
+  function finishMiniGame(){
+    stopMiniGame();
+    gameStart.hidden=false;gameStart.textContent='Играть ещё раз';
+    gameStatus.textContent=gameScore>=20?'Невероятно! Ты поймал '+gameScore+' частиц! 🏆':'Время вышло! Результат: '+gameScore+'. Попробуешь ещё?';
+  }
+  function startMiniGame(){
+    stopMiniGame();gameArena.replaceChildren();gameScore=0;gameTime=20;gameRunning=true;
+    gameScoreNode.textContent='0';gameTimeNode.textContent='20';
+    gameStart.hidden=true;gameStatus.textContent='Лови частицы!';
+    spawnGameTarget();gameSpawnTimer=window.setInterval(spawnGameTarget,620);
+    gameClockTimer=window.setInterval(()=>{
+      gameTime=Math.max(0,gameTime-1);gameTimeNode.textContent=String(gameTime);
+      if(gameTime<=0)finishMiniGame();
+    },1000);
+  }
+  if(gameClose)gameClose.addEventListener('click',closeMiniGame);
+  if(gameStart)gameStart.addEventListener('click',startMiniGame);
+  if(gameModal)gameModal.addEventListener('click',event=>{if(event.target===gameModal)closeMiniGame();});
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&gameModal&&!gameModal.hidden)closeMiniGame();});
+  const brandLink=document.querySelector('.brand');
+  if(brandLink)brandLink.addEventListener('click',event=>{
+    brandHits++;
+    if(brandHitTimeout)clearTimeout(brandHitTimeout);
+    brandHitTimeout=window.setTimeout(()=>{brandHits=0;},1900);
+    if(brandHits>=5){event.preventDefault();brandHits=0;openMiniGame();}
+  });
+
   applySeason(currentSeason);refreshSeason();window.setInterval(refreshSeason,60000);
 }());
