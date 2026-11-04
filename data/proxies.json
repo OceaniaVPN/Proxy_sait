@@ -1,64 +1,44 @@
 {
   "proxies": [
     {
-      "id": "demo-web-frankfurt",
-      "name": "WEB (TG) · Frankfurt",
-      "protocol": "WEB (TG)",
-      "address": "web-tg-frankfurt.example.invalid:443",
-      "country": "Германия",
-      "city": "Франкфурт",
-      "status": "demo",
-      "connection": "https://web-tg-frankfurt.example.invalid/"
-    },
-    {
-      "id": "demo-web-amsterdam",
-      "name": "WEB (TG) · Amsterdam",
-      "protocol": "WEB (TG)",
-      "address": "web-tg-amsterdam.example.invalid:443",
-      "country": "Нидерланды",
-      "city": "Амстердам",
-      "status": "demo",
-      "connection": "https://web-tg-amsterdam.example.invalid/"
-    },
-    {
-      "id": "demo-socks-frankfurt",
-      "name": "SOCKS5 (TG) · Frankfurt",
-      "protocol": "SOCKS5 (TG)",
-      "address": "socks5-tg-frankfurt.example.invalid:1080",
-      "country": "Германия",
-      "city": "Франкфурт",
-      "status": "demo",
-      "connection": "tg://socks?server=socks5-tg-frankfurt.example.invalid&port=1080"
-    },
-    {
-      "id": "demo-socks-helsinki",
-      "name": "SOCKS5 (TG) · Helsinki",
-      "protocol": "SOCKS5 (TG)",
-      "address": "socks5-tg-helsinki.example.invalid:1080",
-      "country": "Финляндия",
-      "city": "Хельсинки",
-      "status": "demo",
-      "connection": "tg://socks?server=socks5-tg-helsinki.example.invalid&port=1080"
-    },
-    {
-      "id": "demo-mtproto-frankfurt",
-      "name": "MTProto · Frankfurt",
+      "id": "mtproto-65-108-123-76",
+      "name": "MTProto · 65.108.123.76",
       "protocol": "MTProto",
-      "address": "mtproto-frankfurt.example.invalid:443",
-      "country": "Германия",
-      "city": "Франкфурт",
-      "status": "demo",
-      "connection": "tg://proxy?server=mtproto-frankfurt.example.invalid&port=443&secret=demo-secret-not-valid"
+      "address": "65.108.123.76:443",
+      "country": "Не указана",
+      "city": "—",
+      "status": "unverified",
+      "connection": "tg://proxy?server=65.108.123.76&port=443&secret=dd79e7010200010007f0030386e24c3add"
     },
     {
-      "id": "demo-mtproto-helsinki",
-      "name": "MTProto · Helsinki",
+      "id": "mtproto-65-109-147-34",
+      "name": "MTProto · 65.109.147.34",
       "protocol": "MTProto",
-      "address": "mtproto-helsinki.example.invalid:443",
-      "country": "Финляндия",
-      "city": "Хельсинки",
-      "status": "demo",
-      "connection": "tg://proxy?server=mtproto-helsinki.example.invalid&port=443&secret=demo-secret-not-valid"
+      "address": "65.109.147.34:443",
+      "country": "Не указана",
+      "city": "—",
+      "status": "unverified",
+      "connection": "https://t.me/proxy?server=65.109.147.34&sponser_channel=%40proxyListFree&port=443&secret=3XnnAQIAAQAH8AMDhuJMOt0"
+    },
+    {
+      "id": "socks5-5-255-123-162",
+      "name": "SOCKS5 (TG) · 5.255.123.162",
+      "protocol": "SOCKS5 (TG)",
+      "address": "5.255.123.162:1080",
+      "country": "Не указана",
+      "city": "—",
+      "status": "unverified",
+      "connection": "tg://socks?server=5.255.123.162&port=1080"
+    },
+    {
+      "id": "webproxy-tgwv3-badwin",
+      "name": "WEB (TG) · tgwv3.badwin.win",
+      "protocol": "WEB (TG)",
+      "address": "tgwv3.badwin.win",
+      "country": "Не указана",
+      "city": "—",
+      "status": "unverified",
+      "connection": "https://t.me/webproxy?server=tgwv3.badwin.win&secret=dd3a3348375b3efd28079d601b1ea48475&bot=@mtpro_xyz_bot&channel=@mtpro_xyz"
     }
   ]
 }
