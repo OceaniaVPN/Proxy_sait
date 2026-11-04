@@ -300,7 +300,28 @@
     .admin-logout { margin-top:14px; padding:8px 0; border:0; color:var(--muted); background:none; cursor:pointer; font-size:10px; }
     @media(max-width:600px) { .profile-button, .nav .profile-button { width:37px; height:37px; padding:0; border-radius:50%; } }
     @media(prefers-reduced-motion:reduce) { .weather-layer { display:none; } }
-  </style>
+  
+    /* Плавные орбиты вокруг центрального объекта */
+    .orb-area { perspective:900px; }
+    .orbit { transform-origin:50% 50%; animation:proxy-orbit-a 32s linear infinite; }
+    .orbit.two { animation:proxy-orbit-b 45s linear infinite reverse; }
+    .orbit.three { animation:proxy-orbit-c 24s linear infinite; }
+    .orb { transform-style:preserve-3d; will-change:transform; animation:proxy-orb-spin 25s ease-in-out infinite; }
+    .orbit-point { animation:proxy-point-pulse 3.4s ease-in-out infinite; }
+    .orbit-point.p2 { animation-delay:-1.7s; }
+    .live-pill { animation:proxy-pill-glow 4s ease-in-out infinite; }
+    @keyframes proxy-orbit-a { from { transform:rotate(-24deg) scaleY(.63); } to { transform:rotate(336deg) scaleY(.63); } }
+    @keyframes proxy-orbit-b { from { transform:rotate(46deg) scaleY(.58); } to { transform:rotate(406deg) scaleY(.58); } }
+    @keyframes proxy-orbit-c { from { transform:rotate(0) scaleY(.7); } to { transform:rotate(360deg) scaleY(.7); } }
+    @keyframes proxy-orb-spin { 0%,100% { transform:translateY(0) rotate(-9deg); } 25% { transform:translateY(-7px) rotate(81deg); } 50% { transform:translateY(-11px) rotate(171deg); } 75% { transform:translateY(-5px) rotate(261deg); } }
+    @keyframes proxy-point-pulse { 0%,100% { scale:.78; opacity:.55; } 50% { scale:1.3; opacity:1; } }
+    @keyframes proxy-pill-glow { 0%,100% { box-shadow:0 0 0 rgba(184,255,106,0); } 50% { box-shadow:0 0 20px rgba(184,255,106,.16); } }
+    .weather-layer { z-index:0; }
+    .weather-canvas { position:absolute; inset:0; display:block; width:100%; height:100%; }
+    .topbar, main, footer, .wrap { position:relative; z-index:1; }
+    @media(prefers-reduced-motion:reduce) { .orbit,.orbit.two,.orbit.three,.orb,.orbit-point,.live-pill { animation:none!important; } }
+
+</style>
 </head>
 <body>
   <div class="weather-layer" id="weather-layer" aria-hidden="true"></div>
