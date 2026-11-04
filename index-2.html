@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#080b11">
+  <meta name="description" content="Каталог Telegram MTProto-прокси. Список серверов автоматически загружается из proxies.txt в GitHub.">
+  <title>PROXYSAIT — Telegram Proxy Network</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap');
+    :root {
+      color-scheme: dark;
+      --bg: #080b11;
+      --surface: #10151e;
+      --surface-2: #141b26;
+      --line: rgba(193, 211, 232, .105);
+      --line-strong: rgba(193, 211, 232, .18);
+      --text: #f3f6f8;
+      --muted: #8c98a9;
+      --muted-2: #657184;
+      --mint: #b8ff6a;
+      --mint-2: #82df69;
+      --blue: #78c8ff;
+      --violet: #a99bff;
+      --danger: #ff9b9b;
+      --radius: 22px;
+      --shadow: 0 28px 90px rgba(0,0,0,.36);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      overflow-x: hidden;
+      color: var(--text);
+      background:
+        radial-gradient(ellipse at 13% 2%, rgba(94, 180, 126, .13), transparent 32%),
+        radial-gradient(ellipse at 93% 12%, rgba(113, 133, 255, .13), transparent 27%),
+        radial-gradient(ellipse at 54% 66%, rgba(60, 99, 116, .07), transparent 42%),
+        var(--bg);
+      font: 14px/1.6 'Manrope', system-ui, sans-serif;
+    }
+    body::before {
+      position: fixed; inset: 0; z-index: -1; content: '';
+      pointer-events: none; opacity: .18;
+      background-image: linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+      background-size: 64px 64px;
+      mask-image: linear-gradient(to bottom, black, transparent 78%);
+    }
+    a { color: inherit; }
+    button, input { font: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    .wrap { width: min(1160px, calc(100% - 44px)); margin: 0 auto; }
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      min-height: 82px; border-bottom: 1px solid var(--line);
+    }
+    .brand { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; }
+    .brand-mark {
+      width: 38px; height: 38px; display: grid; place-items: center;
+      border-radius: 13px; color: #10170b; font: 800 21px 'Space Grotesk';
+      background: linear-gradient(145deg, #d7ff9b, #8bdf69);
+      box-shadow: 0 0 28px rgba(184,255,106,.2), inset 0 1px 0 rgba(255,255,255,.65);
+      transform: rotate(-5deg);
+    }
+    .brand-name { font: 700 16px 'Space Grotesk', sans-serif; letter-spacing: -.55px; }
+    .brand-name span { color: var(--mint); }
+    .nav { display: flex; align-items: center; gap: 30px; }
+    .nav a { text-decoration: none; color: #a8b2c1; font-size: 11px; font-weight: 800; letter-spacing: 1.15px; transition: color .2s; }
+    .nav a:hover { color: var(--mint); }
+    .nav .github-link { display: inline-flex; align-items: center; gap: 8px; color: var(--text); padding: 10px 14px; border: 1px solid var(--line-strong); border-radius: 999px; background: rgba(255,255,255,.025); }
+    .nav .github-link:hover { border-color: rgba(184,255,106,.45); }
+    .hero {
+      display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(360px, .9fr);
+      align-items: center; gap: 56px; padding: 82px 0 66px;
+    }
+    .eyebrow { display: inline-flex; align-items: center; gap: 9px; color: var(--mint); font-size: 10px; font-weight: 800; letter-spacing: 2.1px; text-transform: uppercase; }
+    .eyebrow::before { content: ''; width: 22px; height: 1px; background: var(--mint); box-shadow: 0 0 10px var(--mint); }
+    h1 { max-width: 690px; margin: 20px 0 20px; font: 700 clamp(48px, 6.3vw, 82px)/.99 'Space Grotesk', sans-serif; letter-spacing: -5.5px; }
+    h1 .gradient { color: transparent; background: linear-gradient(95deg, #d8ffa0 4%, #9be8a0 42%, #90c8ff 89%); -webkit-background-clip: text; background-clip: text; }
+    .hero-copy { max-width: 540px; color: #9aa6b7; font-size: 15px; line-height: 1.9; }
+    .hero-copy strong { color: #e5ebf1; font-weight: 700; }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 11px; margin-top: 30px; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+      min-height: 46px; padding: 0 17px; border-radius: 12px; border: 1px solid var(--line-strong);
+      color: var(--text); background: rgba(255,255,255,.035); text-decoration: none;
+      font-size: 12px; font-weight: 800; cursor: pointer; transition: transform .2s, border-color .2s, background .2s, box-shadow .2s;
+    }
+    .btn:hover { transform: translateY(-2px); border-color: rgba(184,255,106,.48); background: rgba(184,255,106,.06); }
+    .btn-primary { color: #11180b; border-color: transparent; background: linear-gradient(115deg, #d8ff9b, #a8ed77); box-shadow: 0 9px 28px rgba(184,255,106,.13); }
+    .btn-primary:hover { color: #11180b; border-color: transparent; background: linear-gradient(115deg, #e4ffba, #b6f78c); box-shadow: 0 12px 34px rgba(184,255,106,.2); }
+    .btn svg { width: 15px; height: 15px; flex: none; }
+    .hero-note { display: flex; align-items: center; gap: 9px; margin-top: 23px; color: var(--muted-2); font-size: 11px; }
+    .hero-note .dot, .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--mint); box-shadow: 0 0 0 4px rgba(184,255,106,.09), 0 0 13px rgba(184,255,106,.6); }
+    .visual-card {
+      min-height: 390px; position: relative; overflow: hidden; isolation: isolate;
+      border: 1px solid rgba(209,224,242,.14); border-radius: 28px;
+      background: linear-gradient(145deg, rgba(27,37,48,.94), rgba(13,19,29,.94));
+      box-shadow: var(--shadow), inset 0 1px rgba(255,255,255,.05);
+    }
+    .visual-card::before { content: ''; position: absolute; width: 380px; height: 380px; top: -150px; right: -130px; border-radius: 50%; background: rgba(142,210,115,.12); filter: blur(70px); z-index: -1; }
+    .visual-card::after { content: ''; position: absolute; width: 300px; height: 300px; bottom: -180px; left: -100px; border-radius: 50%; background: rgba(115,161,255,.13); filter: blur(65px); z-index: -1; }
+    .visual-top { display: flex; justify-content: space-between; align-items: center; padding: 22px 23px 0; }
+    .visual-label { color: #8f9cad; font-size: 9px; letter-spacing: 1.7px; font-weight: 800; }
+    .live-pill { display: flex; align-items: center; gap: 7px; border: 1px solid rgba(184,255,106,.2); border-radius: 99px; padding: 6px 9px; background: rgba(184,255,106,.055); color: var(--mint); font: 10px 'DM Mono', monospace; }
+    .live-pill .status-dot { width: 5px; height: 5px; }
+    .orb-area { height: 230px; position: relative; display: grid; place-items: center; }
+    .orbit { position: absolute; width: 220px; height: 220px; border: 1px solid rgba(184,255,106,.13); border-radius: 50%; transform: rotate(-24deg) scaleY(.63); }
+    .orbit.two { width: 290px; height: 290px; border-color: rgba(125,175,255,.12); transform: rotate(46deg) scaleY(.58); }
+    .orbit.three { width: 175px; height: 175px; border-color: rgba(255,255,255,.1); transform: rotate(0) scaleY(.7); }
+    .orb {
+      width: 118px; height: 118px; display: grid; place-items: center; border-radius: 37px;
+      background: radial-gradient(circle at 28% 20%, #eaffc5, #b7ee80 38%, #4d9466 100%);
+      box-shadow: 0 0 65px rgba(166,235,121,.28), inset 0 2px 2px rgba(255,255,255,.7), inset 0 -14px 30px rgba(15,53,38,.28);
+      transform: rotate(-9deg); animation: float 6s ease-in-out infinite;
+    }
+    .orb svg { width: 61px; height: 61px; filter: drop-shadow(0 4px 8px rgba(21,55,34,.2)); }
+    .orbit-point { position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--mint); box-shadow: 0 0 15px var(--mint); }
+    .p1 { top: 39px; right: 23%; } .p2 { bottom: 42px; left: 23%; width: 6px; height: 6px; background: var(--blue); box-shadow: 0 0 13px var(--blue); }
+    .visual-bottom { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0 20px 20px; }
+    .visual-metric { padding: 13px 14px; border-radius: 13px; border: 1px solid rgba(220,232,246,.09); background: rgba(255,255,255,.035); }
+    .visual-metric span { display: block; color: var(--muted-2); font-size: 9px; font-weight: 800; letter-spacing: 1.1px; }
+    .visual-metric strong { display: block; margin-top: 4px; color: #edf2f7; font: 600 13px 'Space Grotesk'; }
+    @keyframes float { 0%,100% { transform: translateY(0) rotate(-9deg); } 50% { transform: translateY(-9px) rotate(-5deg); } }
+    .stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin: 0 0 76px; }
+    .stat { position: relative; overflow: hidden; min-height: 105px; padding: 19px 21px; border: 1px solid var(--line); border-radius: 17px; background: linear-gradient(135deg, rgba(21,29,41,.85), rgba(13,18,27,.78)); }
+    .stat::after { content: ''; position: absolute; width: 100px; height: 100px; right: -45px; bottom: -63px; border-radius: 50%; background: rgba(184,255,106,.12); filter: blur(18px); }
+    .stat-label { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase; }
+    .stat-value { display: block; margin-top: 8px; font: 700 27px/1 'Space Grotesk'; letter-spacing: -1px; }
+    .stat-value.small { font-size: 17px; letter-spacing: -.3px; }
+    .section { padding-bottom: 75px; scroll-margin-top: 25px; }
+    .section-head { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 23px; }
+    .section-kicker { color: var(--mint); font-size: 9px; font-weight: 800; letter-spacing: 2px; }
+    h2 { margin: 8px 0 5px; font: 700 clamp(28px,4vw,38px)/1.1 'Space Grotesk'; letter-spacing: -1.7px; }
+    .section-sub { color: var(--muted); font-size: 12px; }
+    .refresh-btn { min-height: 41px; padding: 0 13px; color: #c9d3df; font-size: 11px; }
+    .refresh-btn svg { width: 14px; height: 14px; }
+    .catalog-shell { padding: 21px; border: 1px solid var(--line); border-radius: 22px; background: linear-gradient(145deg, rgba(18,25,36,.91), rgba(12,17,26,.92)); box-shadow: var(--shadow); }
+    .toolbar { display: grid; grid-template-columns: minmax(0,1fr) 180px; gap: 10px; margin-bottom: 17px; }
+    .search-wrap { position: relative; }
+    .search-wrap svg { position: absolute; top: 50%; left: 15px; width: 16px; height: 16px; color: #748196; transform: translateY(-50%); pointer-events: none; }
+    .search { width: 100%; min-height: 48px; padding: 0 15px 0 43px; border: 1px solid var(--line); border-radius: 12px; outline: none; color: var(--text); background: #0b111a; font-size: 12px; transition: border .2s, box-shadow .2s; }
+    .search::placeholder { color: #657184; }
+    .search:focus { border-color: rgba(184,255,106,.55); box-shadow: 0 0 0 3px rgba(184,255,106,.07); }
+    .sort { min-height: 48px; padding: 0 13px; border: 1px solid var(--line); border-radius: 12px; outline: none; color: #c6d0dc; background: #0b111a; font-size: 11px; cursor: pointer; }
+    .catalog-meta { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 0 2px 15px; color: var(--muted-2); font-size: 10px; }
+    .catalog-meta strong { color: #bdc8d5; font-weight: 700; }
+    .source-link { display: inline-flex; align-items: center; gap: 7px; color: #9eabbc; text-decoration: none; transition: color .2s; }
+    .source-link:hover { color: var(--mint); }
+    .source-link svg { width: 12px; height: 12px; }
+    .proxy-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 11px; }
+    .proxy-card { position: relative; min-width: 0; overflow: hidden; padding: 17px; border: 1px solid rgba(203,219,237,.105); border-radius: 16px; background: linear-gradient(130deg, rgba(26,36,50,.76), rgba(15,22,32,.82)); transition: border-color .22s, transform .22s, background .22s; }
+    .proxy-card:hover { transform: translateY(-3px); border-color: rgba(184,255,106,.35); background: linear-gradient(130deg, rgba(31,46,56,.86), rgba(16,25,35,.92)); }
+    .proxy-card::before { content: ''; position: absolute; width: 150px; height: 150px; right: -105px; top: -105px; border-radius: 50%; background: rgba(184,255,106,.11); filter: blur(25px); pointer-events: none; }
+    .card-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .node-id { color: #657184; font: 10px 'DM Mono', monospace; letter-spacing: .6px; }
+    .protocol-pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border: 1px solid rgba(184,255,106,.2); border-radius: 7px; color: var(--mint); background: rgba(184,255,106,.055); font: 9px 'DM Mono', monospace; }
+    .protocol-pill::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--mint); }
+    .server-name { margin: 17px 0 4px; overflow: hidden; color: #f0f4f7; font: 600 18px 'Space Grotesk'; letter-spacing: -.45px; text-overflow: ellipsis; white-space: nowrap; }
+    .server-caption { color: #778497; font-size: 10px; }
+    .card-bottom { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 17px; padding-top: 14px; border-top: 1px solid rgba(203,219,237,.08); }
+    .server-address { min-width: 0; overflow: hidden; color: #9daabd; font: 10px 'DM Mono', monospace; text-overflow: ellipsis; white-space: nowrap; }
+    .card-actions { display: flex; flex: none; align-items: center; gap: 7px; }
+    .icon-btn { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--line-strong); border-radius: 9px; color: #aab6c5; background: rgba(255,255,255,.025); cursor: pointer; transition: .2s; }
+    .icon-btn:hover { color: var(--mint); border-color: rgba(184,255,106,.4); background: rgba(184,255,106,.06); }
+    .icon-btn svg { width: 14px; height: 14px; }
+    .connect-btn { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 0 11px; border: 0; border-radius: 9px; color: #11180b; background: var(--mint); text-decoration: none; font-size: 10px; font-weight: 800; transition: .2s; }
+    .connect-btn:hover { transform: translateY(-1px); background: #d6ffa4; box-shadow: 0 5px 18px rgba(184,255,106,.15); }
+    .connect-btn svg { width: 12px; height: 12px; }
+    .state { display: grid; place-items: center; min-height: 220px; padding: 28px; border: 1px dashed rgba(203,219,237,.15); border-radius: 15px; text-align: center; }
+    .state-icon { display: grid; place-items: center; width: 45px; height: 45px; margin: 0 auto 13px; border: 1px solid rgba(184,255,106,.18); border-radius: 14px; color: var(--mint); background: rgba(184,255,106,.06); }
+    .state-icon svg { width: 20px; height: 20px; }
+    .state h3 { margin: 0 0 7px; font: 600 16px 'Space Grotesk'; }
+    .state p { max-width: 520px; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.8; }
+    .state code { color: #d5f5b4; font: 11px 'DM Mono', monospace; }
+    .state.error .state-icon { border-color: rgba(255,155,155,.22); color: var(--danger); background: rgba(255,155,155,.06); }
+    .spinner { width: 17px; height: 17px; border: 2px solid rgba(184,255,106,.2); border-top-color: var(--mint); border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .footline { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 22px 0 30px; border-top: 1px solid var(--line); color: #667386; font-size: 10px; }
+    .footline strong { color: #a6b1c0; font-family: 'Space Grotesk'; letter-spacing: .4px; }
+    .foot-right { display: flex; align-items: center; gap: 18px; }
+    .foot-right a { color: #98a5b6; text-decoration: none; }
+    .foot-right a:hover { color: var(--mint); }
+    .toast { position: fixed; z-index: 10; left: 50%; bottom: 24px; display: flex; align-items: center; gap: 9px; padding: 12px 16px; border: 1px solid rgba(184,255,106,.22); border-radius: 12px; color: #e5f9cf; background: rgba(22,34,26,.96); box-shadow: 0 15px 45px rgba(0,0,0,.4); font-size: 11px; font-weight: 700; opacity: 0; pointer-events: none; transform: translate(-50%,12px); transition: .25s; }
+    .toast.show { opacity: 1; transform: translate(-50%,0); }
+    .toast svg { width: 14px; height: 14px; color: var(--mint); }
+    @media (max-width: 900px) {
+      .hero { grid-template-columns: minmax(0,1fr) minmax(300px,.8fr); gap: 28px; padding-top: 62px; }
+      h1 { letter-spacing: -4px; }
+      .visual-card { min-height: 365px; }
+    }
+    @media (max-width: 720px) {
+      .wrap { width: min(100% - 30px, 560px); }
+      .topbar { min-height: 70px; }
+      .nav { gap: 14px; }
+      .nav a:not(.github-link) { display: none; }
+      .nav .github-link { padding: 8px 11px; font-size: 10px; }
+      .hero { grid-template-columns: 1fr; gap: 30px; padding: 54px 0 42px; }
+      h1 { max-width: 600px; font-size: clamp(46px, 12vw, 66px); letter-spacing: -3.8px; }
+      .hero-copy { font-size: 13px; }
+      .visual-card { min-height: 340px; }
+      .orb-area { height: 205px; }
+      .stats { margin-bottom: 58px; gap: 8px; }
+      .stat { min-height: 90px; padding: 14px; }
+      .stat-label { font-size: 8px; letter-spacing: .8px; }
+      .stat-value { font-size: 23px; }
+      .stat-value.small { font-size: 14px; }
+      .section { padding-bottom: 52px; }
+      .catalog-shell { padding: 13px; border-radius: 17px; }
+      .proxy-grid { grid-template-columns: 1fr; }
+      .section-head { align-items: center; }
+    }
+    @media (max-width: 430px) {
+      .wrap { width: calc(100% - 24px); }
+      .brand-name { font-size: 14px; }
+      .brand-mark { width: 34px; height: 34px; }
+      .nav .github-link { font-size: 0; gap: 0; width: 36px; height: 36px; justify-content: center; }
+      .nav .github-link svg { width: 16px; height: 16px; }
+      h1 { font-size: 43px; letter-spacing: -3px; }
+      .hero-actions { display: grid; grid-template-columns: 1fr; }
+      .hero-actions .btn { width: 100%; }
+      .stats { grid-template-columns: 1fr 1fr; }
+      .stat:first-child { grid-column: 1 / -1; }
+      .stat:first-child .stat-value { font-size: 27px; }
+      .section-head { align-items: flex-start; }
+      h2 { font-size: 28px; }
+      .refresh-btn { padding: 0 10px; }
+      .toolbar { grid-template-columns: 1fr; }
+      .catalog-meta { align-items: flex-start; flex-direction: column; gap: 6px; }
+      .footline { align-items: flex-start; flex-direction: column; }
+      .foot-right { width: 100%; justify-content: space-between; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar wrap">
+    <a class="brand" href="#top" aria-label="PROXYSAIT — наверх">
+      <span class="brand-mark">P.</span>
+      <span class="brand-name">PROXY<span>SAIT</span></span>
+    </a>
+    <nav class="nav" aria-label="Основная навигация">
+      <a href="#catalog">КАТАЛОГ</a>
+      <a href="#source">ИСТОЧНИК</a>
+      <a class="github-link" href="https://github.com/OceaniaVPN/Proxy_sait" target="_blank" rel="noopener noreferrer" aria-label="Открыть GitHub">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 6v-3.9a3.4 3.4 0 0 0-.9-2.7c3-.3 6.1-1.5 6.1-6.7a5.2 5.2 0 0 0-1.4-3.6 4.8 4.8 0 0 0-.1-3.6S17.5 1.2 14 3a13 13 0 0 0-7 0C3.5 1.2 2.3 1.5 2.3 1.5a4.8 4.8 0 0 0-.1 3.6A5.2 5.2 0 0 0 .8 8.7c0 5.2 3.1 6.4 6.1 6.7A3.4 3.4 0 0 0 6 18.1V22" transform="translate(2 0) scale(.83)"/></svg>
+        GitHub
+      </a>
+    </nav>
+  </header>
+
+  <main id="top" class="wrap">
+    <section class="hero" aria-labelledby="hero-title">
+      <div>
+        <div class="eyebrow">Telegram proxy network</div>
+        <h1 id="hero-title">ТВОЙ ДОСТУП.<br><span class="gradient">ТВОИ ПРАВИЛА.</span></h1>
+        <p class="hero-copy">Подборка Telegram-прокси в одном месте. <strong>Открой каталог, найди сервер и подключись в Telegram</strong> — список обновляется прямо из GitHub, без ручной загрузки файлов на сайте.</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#catalog">Смотреть каталог <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+          <a class="btn" href="https://github.com/OceaniaVPN/Proxy_sait/blob/main/proxies.txt" target="_blank" rel="noopener noreferrer">Открыть proxies.txt <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></a>
+        </div>
+        <div class="hero-note"><span class="dot"></span> Один источник данных · GitHub / proxies.txt</div>
+      </div>
+
+      <div class="visual-card" aria-label="Карточка источника Telegram Proxy">
+        <div class="visual-top">
+          <span class="visual-label">NETWORK OVERVIEW / 01</span>
+          <span class="live-pill"><span class="status-dot"></span> GITHUB FEED</span>
+        </div>
+        <div class="orb-area" aria-hidden="true">
+          <div class="orbit"></div><div class="orbit two"></div><div class="orbit three"></div>
+          <span class="orbit-point p1"></span><span class="orbit-point p2"></span>
+          <div class="orb">
+            <svg viewBox="0 0 64 64" fill="none"><path d="M52.5 11.7 8.9 28.5c-3 1.2-3 3.2-.5 4l11.2 3.5 4.3 13.4c.5 1.5.3 2.1 1.9 2.1 1.2 0 1.7-.5 2.4-1.2l6.5-6.3 13.5 10c2.5 1.4 4.3.7 4.9-2.3l8-37.7c.8-3.7-1.4-5.4-3.6-4.3ZM22.8 35.2l25.9-16.3c1.3-.8 2.5-.4 1.5.5L28.8 39.7l-.8 8.5-5.2-13Z" fill="#244c36"/></svg>
+          </div>
+        </div>
+        <div class="visual-bottom">
+          <div class="visual-metric"><span>PROTOCOL</span><strong>MTProto / Telegram</strong></div>
+          <div class="visual-metric"><span>DATA SOURCE</span><strong>GitHub · TXT</strong></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="stats" aria-label="Статистика каталога">
+      <div class="stat"><div class="stat-label">Серверов в каталоге</div><strong class="stat-value" id="stat-total">—</strong></div>
+      <div class="stat"><div class="stat-label">Протокол</div><strong class="stat-value small">MTProto</strong></div>
+      <div class="stat"><div class="stat-label">Источник</div><strong class="stat-value small">GitHub TXT</strong></div>
+    </section>
+
+    <section class="section" id="catalog" aria-labelledby="catalog-title">
+      <div class="section-head">
+        <div>
+          <div class="section-kicker">THE SERVER LIST</div>
+          <h2 id="catalog-title">Каталог прокси<span style="color:var(--mint)">.</span></h2>
+          <div class="section-sub">Выбирай сервер и открывай подключение в Telegram.</div>
+        </div>
+        <button type="button" class="btn refresh-btn" id="refresh">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.6 9A7 7 0 0 1 18 6l2 6M4 12l2 6a7 7 0 0 0 12.4-3"/></svg>
+          Обновить
+        </button>
+      </div>
+
+      <div class="catalog-shell">
+        <div class="toolbar">
+          <label class="search-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></svg>
+            <input id="search" class="search" type="search" placeholder="Поиск по адресу сервера…" autocomplete="off" aria-label="Поиск по серверам">
+          </label>
+          <select id="sort" class="sort" aria-label="Сортировка серверов">
+            <option value="name">Сначала А → Я</option>
+            <option value="name-desc">Сначала Я → А</option>
+          </select>
+        </div>
+        <div class="catalog-meta">
+          <span id="results-label">Подключение к источнику GitHub…</span>
+          <a class="source-link" id="source" href="https://github.com/OceaniaVPN/Proxy_sait/blob/main/proxies.txt" target="_blank" rel="noopener noreferrer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+            ИСТОЧНИК: PROXIES.TXT
+          </a>
+        </div>
+        <div id="proxy-list" class="proxy-grid" aria-live="polite">
+          <div class="state" style="grid-column:1/-1"><div><div class="spinner" style="margin:0 auto 14px"></div><h3>Загружаем список серверов</h3><p>Получаем актуальные ссылки из GitHub.</p></div></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footline wrap">
+    <div><strong>PROXYSAIT</strong> <span>· TELEGRAM PROXY DIRECTORY</span></div>
+    <div class="foot-right"><span>Данные: GitHub / proxies.txt</span><a href="https://github.com/OceaniaVPN/Proxy_sait" target="_blank" rel="noopener noreferrer">Репозиторий ↗</a></div>
+  </footer>
+  <div class="toast" id="toast" role="status" aria-live="polite"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6"/></svg><span id="toast-text">Ссылка скопирована</span></div>
+
+  <script>
+    // Единственный источник данных. Файл proxies.txt должен лежать в корне main-ветки GitHub.
+    const FEED_URL = 'https://raw.githubusercontent.com/OceaniaVPN/Proxy_sait/main/proxies.txt';
+    const REPO_FILE_URL = 'https://github.com/OceaniaVPN/Proxy_sait/blob/main/proxies.txt';
+    const $ = (selector) => document.querySelector(selector);
+    let proxies = [];
+    let toastTimer;
+
+    function showToast(message) {
+      $('#toast-text').textContent = message;
+      $('#toast').classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => $('#toast').classList.remove('show'), 2200);
+    }
+
+    function getServerName(url) {
+      return url.searchParams.get('server') || 'Telegram Proxy';
+    }
+
+    function extractProxyLinks(text) {
+      const links = [];
+      const seen = new Set();
+      for (const rawLine of text.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith('#')) continue;
+        const matches = line.match(/https?:\/\/t\.me\/webproxy\?[^\s"'<>]+/gi) || [];
+        for (let candidate of matches) {
+          candidate = candidate.replace(/[),.;\]}]+$/g, '');
+          try {
+            const url = new URL(candidate);
+            const valid = url.protocol === 'https:' && url.hostname.toLowerCase() === 't.me'
+              && url.pathname === '/webproxy' && url.searchParams.has('server')
+              && url.searchParams.has('secret');
+            if (!valid) continue;
+            const normalized = url.toString();
+            if (seen.has(normalized)) continue;
+            seen.add(normalized);
+            links.push({ url: normalized, name: getServerName(url) });
+          } catch (_) { /* Игнорируем некорректные строки. */ }
+        }
+      }
+      return links;
+    }
+
+    function makeIcon(markup) {
+      const template = document.createElement('template');
+      template.innerHTML = markup.trim();
+      return template.content.firstElementChild;
+    }
+
+    function createProxyCard(proxy, index) {
+      const article = document.createElement('article');
+      article.className = 'proxy-card';
+
+      const top = document.createElement('div');
+      top.className = 'card-top';
+      const node = document.createElement('span');
+      node.className = 'node-id';
+      node.textContent = `NODE / ${String(index + 1).padStart(2, '0')}`;
+      const pill = document.createElement('span');
+      pill.className = 'protocol-pill';
+      pill.textContent = 'MTPROTO';
+      top.append(node, pill);
+
+      const name = document.createElement('h3');
+      name.className = 'server-name';
+      name.textContent = proxy.name;
+      name.title = proxy.name;
+      const caption = document.createElement('div');
+      caption.className = 'server-caption';
+      caption.textContent = 'TELEGRAM PROXY SERVER';
+
+      const bottom = document.createElement('div');
+      bottom.className = 'card-bottom';
+      const address = document.createElement('div');
+      address.className = 'server-address';
+      address.textContent = proxy.name;
+      address.title = proxy.name;
+      const actions = document.createElement('div');
+      actions.className = 'card-actions';
+
+      const copy = document.createElement('button');
+      copy.className = 'icon-btn';
+      copy.type = 'button';
+      copy.setAttribute('aria-label', `Скопировать ссылку ${proxy.name}`);
+      copy.title = 'Скопировать ссылку';
+      copy.append(makeIcon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>'));
+      copy.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(proxy.url);
+          showToast('Ссылка подключения скопирована');
+        } catch (_) {
+          const field = document.createElement('textarea');
+          field.value = proxy.url;
+          field.style.position = 'fixed'; field.style.opacity = '0';
+          document.body.append(field); field.select();
+          const copied = document.execCommand('copy'); field.remove();
+          showToast(copied ? 'Ссылка подключения скопирована' : 'Не удалось скопировать ссылку');
+        }
+      });
+
+      const connect = document.createElement('a');
+      connect.className = 'connect-btn';
+      connect.href = proxy.url;
+      connect.target = '_blank';
+      connect.rel = 'noopener noreferrer';
+      connect.append(document.createTextNode('Подключить'));
+      connect.append(makeIcon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg>'));
+
+      actions.append(copy, connect);
+      bottom.append(address, actions);
+      article.append(top, name, caption, bottom);
+      return article;
+    }
+
+    function render() {
+      const query = $('#search').value.trim().toLocaleLowerCase('ru');
+      const direction = $('#sort').value;
+      const rows = proxies
+        .filter(proxy => `${proxy.name} ${proxy.url}`.toLocaleLowerCase('ru').includes(query))
+        .sort((a, b) => direction === 'name-desc'
+          ? b.name.localeCompare(a.name, 'ru')
+          : a.name.localeCompare(b.name, 'ru'));
+
+      $('#stat-total').textContent = String(proxies.length);
+      $('#results-label').innerHTML = `<strong>${rows.length}</strong> из <strong>${proxies.length}</strong> серверов`;
+      const list = $('#proxy-list');
+      list.replaceChildren();
+
+      if (!rows.length) {
+        const state = document.createElement('div');
+        state.className = 'state';
+        state.style.gridColumn = '1 / -1';
+        const inner = document.createElement('div');
+        const icon = makeIcon('<div class="state-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></svg></div>');
+        const title = document.createElement('h3'); title.textContent = proxies.length ? 'Ничего не найдено' : 'В каталоге пока пусто';
+        const copy = document.createElement('p'); copy.textContent = proxies.length ? 'Измени поисковый запрос — серверы с таким названием не найдены.' : 'Добавь Telegram-ссылки в файл proxies.txt в корне GitHub-репозитория. Каждая ссылка — с новой строки. Посетители сайта не могут загружать или менять этот файл.';
+        inner.append(icon, title, copy);
+        if (!proxies.length) {
+          const link = document.createElement('a');
+          link.href = REPO_FILE_URL; link.target = '_blank'; link.rel = 'noopener noreferrer';
+          link.className = 'btn'; link.style.marginTop = '15px'; link.textContent = 'Открыть proxies.txt на GitHub';
+          inner.append(link);
+        }
+        state.append(inner); list.append(state); return;
+      }
+      rows.forEach((proxy, index) => list.append(createProxyCard(proxy, proxies.indexOf(proxy))));
+    }
+
+    async function loadFeed() {
+      const button = $('#refresh');
+      button.disabled = true;
+      button.style.opacity = '.65';
+      const previous = button.innerHTML;
+      button.innerHTML = '<span class="spinner" style="width:13px;height:13px;border-width:1.5px"></span> Загрузка';
+      $('#results-label').textContent = 'Синхронизация с GitHub…';
+      try {
+        const response = await fetch(`${FEED_URL}?_=${Date.now()}`, {
+          method: 'GET', cache: 'no-store', headers: { 'Accept': 'text/plain' }
+        });
+        if (!response.ok) throw new Error(response.status === 404 ? 'NOT_FOUND' : `HTTP_${response.status}`);
+        const text = await response.text();
+        proxies = extractProxyLinks(text);
+        render();
+        if (!proxies.length) {
+          $('#results-label').textContent = 'Файл найден · подходящих ссылок нет';
+          showToast('Файл загружен, но ссылок не найдено');
+        } else {
+          $('#results-label').textContent = `Синхронизировано с GitHub · ${proxies.length} серверов`;
+          showToast(`Каталог обновлён · ${proxies.length} серверов`);
+        }
+      } catch (error) {
+        console.error('Не удалось загрузить proxies.txt:', error);
+        const list = $('#proxy-list');
+        list.replaceChildren();
+        const state = document.createElement('div');
+        state.className = 'state error'; state.style.gridColumn = '1 / -1';
+        const inner = document.createElement('div');
+        inner.append(makeIcon('<div class="state-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3l-8.5-14.1a2 2 0 0 0-3.4 0Z"/></svg></div>'));
+        const title = document.createElement('h3'); title.textContent = error.message === 'NOT_FOUND' ? 'Файл proxies.txt не найден' : 'Не удалось загрузить список';
+        const message = document.createElement('p');
+        message.textContent = error.message === 'NOT_FOUND'
+          ? 'Создай файл proxies.txt в корне репозитория OceaniaVPN/Proxy_sait (ветка main) и добавь в него Telegram-ссылки — по одной на строку.'
+          : 'Проверь доступность GitHub и попробуй обновить каталог ещё раз. Список берётся только из GitHub, локальная загрузка отключена.';
+        const link = document.createElement('a');
+        link.href = REPO_FILE_URL; link.target = '_blank'; link.rel = 'noopener noreferrer';
+        link.className = 'btn'; link.style.marginTop = '15px'; link.textContent = 'Открыть файл на GitHub';
+        inner.append(title, message, link); state.append(inner); list.append(state);
+        $('#stat-total').textContent = '—';
+        $('#results-label').textContent = 'Нет соединения с источником';
+      } finally {
+        button.disabled = false;
+        button.style.opacity = '1';
+        button.innerHTML = previous;
+      }
+    }
+
+    $('#search').addEventListener('input', render);
+    $('#sort').addEventListener('change', render);
+    $('#refresh').addEventListener('click', loadFeed);
+    loadFeed();
+  </script>
+</body>
+</html>
