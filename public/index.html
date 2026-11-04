@@ -323,23 +323,48 @@
 
 
 
-    /* Гарантируем вращение орбит вокруг Telegram-иконки и в reduced motion. */
-    @media (prefers-reduced-motion: reduce) {
-      .orbit { animation: proxy-orbit-a 62s linear infinite !important; }
-      .orbit.two { animation: proxy-orbit-b 84s linear infinite reverse !important; }
-      .orbit.three { animation: proxy-orbit-c 52s linear infinite !important; }
-      .orb { animation: proxy-orb-spin 48s ease-in-out infinite !important; }
-      .orbit-point { animation: proxy-point-pulse 8s ease-in-out infinite !important; }
-      .live-pill { animation: proxy-pill-glow 12s ease-in-out infinite !important; }
+
+    /* Final motion layer: independent rotation keeps the orbit animation visible on mobile. */
+    @keyframes proxy-ring-turn { from { rotate:0deg; } to { rotate:360deg; } }
+    @keyframes proxy-core-turn {
+      0%,100% { rotate:0deg; translate:0 0; }
+      50% { rotate:180deg; translate:0 -8px; }
     }
-    .weather-layer { position:fixed !important; inset:0 !important; z-index:45 !important; overflow:hidden !important; pointer-events:none !important; }
-    .weather-live { display:block !important; filter:drop-shadow(0 2px 5px rgba(0,0,0,.55)); }
+    .orb-area .orbit {
+      transform-origin:50% 50% !important;
+      animation:proxy-ring-turn 21s linear infinite !important;
+      animation-duration:21s !important;
+      animation-play-state:running !important;
+    }
+    .orb-area .orbit.two {
+      animation:proxy-ring-turn 30s linear infinite reverse !important;
+      animation-duration:30s !important;
+      animation-play-state:running !important;
+    }
+    .orb-area .orbit.three {
+      animation:proxy-ring-turn 14s linear infinite !important;
+      animation-duration:14s !important;
+      animation-play-state:running !important;
+    }
+    .orb-area .orb {
+      animation:proxy-core-turn 18s ease-in-out infinite !important;
+      animation-duration:18s !important;
+      animation-play-state:running !important;
+      transform-style:preserve-3d;
+    }
+    /* Seasonal weather is a background layer, behind cards and controls. */
+    .weather-layer {
+      position:fixed !important; inset:0 !important; z-index:0 !important;
+      overflow:hidden !important; pointer-events:none !important;
+    }
+    .weather-live { display:block !important; filter:drop-shadow(0 2px 5px rgba(0,0,0,.5)); }
     .weather-live-leaf { text-shadow:0 2px 8px rgba(255,172,89,.32); }
     .weather-live-snow { text-shadow:0 0 10px rgba(184,228,255,.9); }
     .weather-live-spring { text-shadow:0 0 9px rgba(255,174,211,.8); }
     .weather-live-summer { text-shadow:0 0 12px rgba(255,225,155,.9); }
     .weather-live-rain { width:2px; height:18px; border-radius:2px; background:linear-gradient(transparent,rgba(167,214,248,.95)); }
     .weather-live-ground { z-index:0; background:linear-gradient(to top,rgba(218,242,255,.42),rgba(218,242,255,0)); box-shadow:0 -4px 16px rgba(190,228,255,.1); }
+    .topbar, main, footer, .wrap { position:relative; z-index:3; }
 
 </style>
 </head>
