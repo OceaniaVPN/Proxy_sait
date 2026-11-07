@@ -405,8 +405,34 @@
     @keyframes proxy-status-pulse { 50% { opacity:.35; } }
 
 </style>
+<style>
+.creator-loader{position:fixed;inset:0;z-index:99999;display:grid;place-items:center;overflow:hidden;background:radial-gradient(ellipse at 50% 45%,rgba(64,116,166,.22),transparent 38%),#070b13;transition:opacity .75s ease,visibility .75s ease}
+.creator-loader.is-gone{opacity:0;visibility:hidden;pointer-events:none}
+.creator-loader:before,.creator-loader:after{content:"";position:absolute;width:min(82vw,680px);aspect-ratio:1;border:1px solid rgba(120,200,255,.12);border-radius:50%;animation:creator-orbit 18s linear infinite}
+.creator-loader:after{width:min(62vw,490px);border-color:rgba(169,155,255,.18);animation-direction:reverse;animation-duration:13s}
+.creator-core{position:relative;z-index:1;width:min(92vw,460px);padding:42px 28px;text-align:center;border:1px solid rgba(180,215,255,.16);border-radius:30px;background:linear-gradient(145deg,rgba(19,30,47,.88),rgba(9,14,24,.84));box-shadow:0 30px 110px rgba(0,0,0,.48),0 0 75px rgba(95,174,255,.12);backdrop-filter:blur(18px);animation:creator-rise 1s cubic-bezier(.2,.8,.2,1) both}
+.creator-symbol{width:76px;height:76px;margin:0 auto 24px;display:grid;place-items:center;border-radius:24px;color:#dff5ff;font-size:32px;background:linear-gradient(145deg,rgba(112,202,255,.24),rgba(169,155,255,.2));border:1px solid rgba(176,221,255,.3);box-shadow:0 0 42px rgba(104,184,255,.22);animation:creator-pulse 2.5s ease-in-out infinite}
+.creator-kicker{font:500 10px/1.4 'DM Mono',monospace;letter-spacing:.32em;color:#8bbfe7;text-transform:uppercase}
+.creator-title{margin:12px 0 8px;font:700 clamp(27px,7vw,42px)/1.1 'Space Grotesk',sans-serif;letter-spacing:-.045em;background:linear-gradient(100deg,#fff 12%,#a9dcff 48%,#c4b6ff 85%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.creator-sub{margin:0;color:#8f9eb1;font-size:13px;letter-spacing:.04em}
+.creator-track{height:3px;margin:28px auto 0;max-width:220px;overflow:hidden;border-radius:10px;background:rgba(255,255,255,.09)}
+.creator-track span{display:block;width:42%;height:100%;border-radius:10px;background:linear-gradient(90deg,#78c8ff,#b6a5ff);box-shadow:0 0 16px #78c8ff;animation:creator-progress 1.8s ease-in-out forwards}
+.creator-enter{display:inline-flex;align-items:center;justify-content:center;gap:10px;margin-top:24px;padding:13px 20px;border:1px solid rgba(130,200,255,.32);border-radius:14px;color:#eaf7ff;text-decoration:none;font-weight:800;font-size:13px;letter-spacing:.02em;background:linear-gradient(110deg,rgba(62,144,202,.28),rgba(130,108,205,.24));box-shadow:0 10px 35px rgba(68,143,211,.15);transition:transform .2s,border-color .2s,box-shadow .2s}
+.creator-enter:hover{transform:translateY(-3px);border-color:rgba(160,220,255,.7);box-shadow:0 14px 42px rgba(68,143,211,.27)}
+.creator-enter svg{width:16px;height:16px}
+.creator-float{position:fixed;right:18px;bottom:18px;z-index:1000;display:flex;align-items:center;gap:12px;padding:9px 10px 9px 15px;border:1px solid rgba(150,205,255,.2);border-radius:16px;background:rgba(10,17,29,.86);box-shadow:0 12px 40px rgba(0,0,0,.32);backdrop-filter:blur(16px)}
+.creator-float span{font:600 12px 'DM Mono',monospace;color:#c9e8ff}
+.creator-float a{padding:10px 13px;border-radius:11px;background:linear-gradient(110deg,#398dc1,#7969bd);color:white;text-decoration:none;font-size:11px;font-weight:800;white-space:nowrap}
+@keyframes creator-orbit{to{transform:rotate(360deg) scale(1.03)}}
+@keyframes creator-rise{from{opacity:0;transform:translateY(22px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes creator-pulse{0%,100%{transform:scale(1);box-shadow:0 0 28px rgba(104,184,255,.16)}50%{transform:scale(1.06);box-shadow:0 0 48px rgba(104,184,255,.34)}}
+@keyframes creator-progress{from{transform:translateX(-110%)}to{transform:translateX(150%)}}
+@media(max-width:520px){.creator-core{padding:34px 20px}.creator-float{left:12px;right:12px;bottom:12px;justify-content:space-between}.creator-float span{font-size:11px}}
+@media(prefers-reduced-motion:reduce){.creator-loader:before,.creator-loader:after,.creator-symbol,.creator-core,.creator-track span{animation:none}.creator-loader{transition:none}}
+</style>
 </head>
 <body>
+<div class="creator-loader" id="creator-loader" aria-label="Загрузка страницы"><div class="creator-core"><div class="creator-symbol" aria-hidden="true">✦</div><div class="creator-kicker">SECURE CONNECTION · ONLINE</div><div class="creator-title">@free_vpn123456</div><p class="creator-sub">Готовим для тебя быстрый и удобный доступ</p><div class="creator-track" aria-hidden="true"><span></span></div><a class="creator-enter" href="https://github.com/OceaniaVPN/Proxy_sait" target="_blank" rel="noopener noreferrer">ОТКРЫТЬ ПРОЕКТ <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></a></div></div><div class="creator-float"><span>@free_vpn123456</span><a href="https://github.com/OceaniaVPN/Proxy_sait" target="_blank" rel="noopener noreferrer">НАШ ПРОЕКТ ↗</a></div>
   <div class="weather-layer" id="weather-layer" aria-hidden="true"></div>
   <header class="topbar wrap">
     <a class="brand" href="#top" aria-label="STEKLOVPN — наверх">
@@ -881,5 +907,6 @@
 
 
   <script src="/admin.js?v=20261104-fix3" defer></script>
+<script>(()=>{const loader=document.getElementById('creator-loader');if(!loader)return;const hide=()=>{loader.classList.add('is-gone');window.setTimeout(()=>loader.remove(),900)};if(document.readyState==='complete')window.setTimeout(hide,1500);else window.addEventListener('load',()=>window.setTimeout(hide,1500),{once:true});window.setTimeout(hide,5000)})();</script>
 </body>
 </html>
