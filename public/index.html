@@ -404,6 +404,26 @@
     .server-status.status-unknown { color:var(--muted-2); }
     @keyframes proxy-status-pulse { 50% { opacity:.35; } }
 
+
+/* Premium Telegram launch screen v2 */
+.creator-loader{isolation:isolate;background:radial-gradient(ellipse at 18% 18%,rgba(33,153,213,.22),transparent 34%),radial-gradient(ellipse at 83% 78%,rgba(133,76,222,.22),transparent 36%),radial-gradient(ellipse at 50% 50%,#101a2b 0%,#070a12 68%)}
+.creator-loader:before{width:min(94vw,780px);border:1px solid rgba(111,199,255,.19);box-shadow:0 0 90px rgba(72,159,231,.08),inset 0 0 80px rgba(72,159,231,.035);animation:creator-orbit 26s linear infinite}
+.creator-loader:after{width:min(70vw,570px);border:1px dashed rgba(184,147,255,.25);box-shadow:0 0 70px rgba(157,115,255,.08);animation:creator-orbit 32s linear infinite reverse}
+.creator-core{width:min(92vw,490px);padding:48px 32px 38px;border-radius:34px;border-color:rgba(165,211,255,.23);background:linear-gradient(145deg,rgba(20,37,60,.88),rgba(8,13,25,.91));box-shadow:0 35px 120px rgba(0,0,0,.58),0 0 100px rgba(67,158,226,.17),inset 0 1px rgba(255,255,255,.09)}
+.creator-symbol{position:relative;width:88px;height:88px;border-radius:28px;font-size:37px;background:linear-gradient(145deg,rgba(54,173,232,.3),rgba(142,103,237,.3));box-shadow:0 0 55px rgba(80,174,255,.25),inset 0 1px rgba(255,255,255,.2)}
+.creator-symbol:after{content:"";position:absolute;inset:-8px;border:1px solid rgba(130,200,255,.23);border-radius:34px;animation:creator-ring 3s ease-out infinite}
+.creator-kicker{font-size:9px;letter-spacing:.38em;color:#9edcff}
+.creator-title{margin:17px 0 11px;font-size:clamp(29px,7.5vw,46px);filter:drop-shadow(0 0 22px rgba(115,190,255,.23))}
+.creator-sub{font-size:13px;color:#a9b9cc}
+.creator-track{height:4px;max-width:250px;margin-top:32px;background:rgba(255,255,255,.1)}
+.creator-track span{width:34%;background:linear-gradient(90deg,#55d6ff,#8f8cff,#d0a1ff);box-shadow:0 0 22px rgba(107,180,255,.8);animation:creator-progress 2.2s cubic-bezier(.4,0,.2,1) infinite}
+.creator-enter{margin-top:28px;min-height:52px;padding:15px 24px;border-radius:16px;border:1px solid rgba(118,207,255,.48);background:linear-gradient(110deg,#168cc5,#586bd2 55%,#885bd1);box-shadow:0 12px 38px rgba(40,131,205,.3),inset 0 1px rgba(255,255,255,.22);font-size:12px;letter-spacing:.08em}
+.creator-enter:hover{transform:translateY(-4px) scale(1.025);box-shadow:0 18px 48px rgba(63,145,230,.4)}
+.creator-float{border-color:rgba(134,196,255,.27);background:linear-gradient(120deg,rgba(12,27,46,.94),rgba(27,19,48,.9));box-shadow:0 14px 50px rgba(0,0,0,.42),0 0 35px rgba(75,146,222,.1)}
+.creator-float a{background:linear-gradient(110deg,#168cc5,#6e62cb);box-shadow:0 5px 18px rgba(55,127,210,.25)}
+@keyframes creator-ring{0%{transform:scale(.94);opacity:.8}100%{transform:scale(1.22);opacity:0}}
+@media(max-width:520px){.creator-core{padding:40px 20px 32px}.creator-symbol{width:78px;height:78px}.creator-float{bottom:14px}}
+
 </style>
 <style>
 .creator-loader{position:fixed;inset:0;z-index:99999;display:grid;place-items:center;overflow:hidden;background:radial-gradient(ellipse at 50% 45%,rgba(64,116,166,.22),transparent 38%),#070b13;transition:opacity .75s ease,visibility .75s ease}
@@ -432,7 +452,7 @@
 </style>
 </head>
 <body>
-<div class="creator-loader" id="creator-loader" aria-label="Загрузка страницы"><div class="creator-core"><div class="creator-symbol" aria-hidden="true">✦</div><div class="creator-kicker">SECURE CONNECTION · ONLINE</div><div class="creator-title">@free_vpn123456</div><p class="creator-sub">Готовим для тебя быстрый и удобный доступ</p><div class="creator-track" aria-hidden="true"><span></span></div><a class="creator-enter" href="https://github.com/OceaniaVPN/Proxy_sait" target="_blank" rel="noopener noreferrer">ОТКРЫТЬ ПРОЕКТ <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></a></div></div><div class="creator-float"><span>@free_vpn123456</span><a href="https://github.com/OceaniaVPN/Proxy_sait" target="_blank" rel="noopener noreferrer">НАШ ПРОЕКТ ↗</a></div>
+<div class="creator-loader" id="creator-loader" aria-label="Загрузка страницы"><div class="creator-core"><div class="creator-symbol" aria-hidden="true">✦</div><div class="creator-kicker">PRIVATE NETWORK · YOUR FREEDOM</div><div class="creator-title">@free_vpn123456</div><p class="creator-sub">Твоя свобода в сети начинается здесь</p><div class="creator-track" aria-hidden="true"><span></span></div><a class="creator-enter" href="https://t.me/free_vpn123456" target="_blank" rel="noopener noreferrer">ПЕРЕЙТИ В TELEGRAM <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></a></div></div><div class="creator-float"><span>@free_vpn123456</span><a href="https://t.me/free_vpn123456" target="_blank" rel="noopener noreferrer">НАШ TELEGRAM ↗</a></div>
   <div class="weather-layer" id="weather-layer" aria-hidden="true"></div>
   <header class="topbar wrap">
     <a class="brand" href="#top" aria-label="STEKLOVPN — наверх">
