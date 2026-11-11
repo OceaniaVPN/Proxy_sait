@@ -415,8 +415,10 @@ async function syncMtprotoHealth(env, force = false) {
     const snapshot = JSON.parse(raw);
     const checkedAt = typeof snapshot?.checkedAt === "string" ? snapshot.checkedAt : "";
     const checkedAtMs = Date.parse(checkedAt);
-    if (snapshot?.version !== 1 || !Array.isArray(snapshot.results) || !snapshot.results.length
-      || !Number.isFinite(checkedAtMs)) {
+    const skipped = snapshot?.status === "skipped";
+    if (snapshot?.version !== 1 || !Array.isArray(snapshot.results)
+      || !Number.isFinite(checkedAtMs)
+      || (skipped ? snapshot.results.length !== 0 : snapshot.results.length === 0)) {
       throw new Error("Invalid MTProto snapshot format");
     }
     const ageMs = Date.now() - checkedAtMs;
@@ -443,15 +445,19 @@ async function syncMtprotoHealth(env, force = false) {
         checkedAt, errorCode, String(snapshot.checker || "mtproxy-checker").slice(0, 80),
         Number.isInteger(Number(item.dc)) ? Number(item.dc) : null));
     }
-    if (!writes.length) throw new Error("No valid MTProto results in snapshot");
-    await runDbBatch(env, writes, 40);
+    const skipReason = String(snapshot.skipReason || "unspecified").replace(/[^a-z0-9_-]/gi, "_").slice(0, 60);
+    if (!writes.length && !skipped) throw new Error("No valid MTProto results in snapshot");
+    if (writes.length) await runDbBatch(env, writes, 40);
 
     const sourceCount = Math.max(0, Number(snapshot.sourceCount) || 0);
-    const discoveredLinks = Math.max(writes.length, Number(snapshot.discoveredLinks) || writes.length);
-    const checkedCount = Math.max(writes.length, Number(snapshot.checkedCount) || writes.length);
-    const workingCount = Math.max(0, Number(snapshot.workingCount) || 0);
-    const failedCount = Math.max(0, Number(snapshot.failedCount) || 0);
+    const discoveredLinks = Math.max(writes.length, Number(snapshot.discoveredLinks) || 0);
+    const checkedCount = skipped ? 0 : Math.max(writes.length, Number(snapshot.checkedCount) || writes.length);
+    const workingCount = skipped ? 0 : Math.max(0, Number(snapshot.workingCount) || 0);
+    const failedCount = skipped ? 0 : Math.max(0, Number(snapshot.failedCount) || 0);
     const durationMs = Math.max(0, Number(snapshot.durationMs) || 0);
+    const checkerName = skipped
+      ? "skipped:" + skipReason
+      : String(snapshot.checker || "mtproxy-checker").slice(0, 80);
     await env.DB.prepare(
       "INSERT INTO proxy_mtproto_meta (id, checked_at, attempted_at, source_count, discovered_links, checked_count, working_count, failed_count, duration_ms, checker) " +
       "VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET " +
@@ -459,9 +465,9 @@ async function syncMtprotoHealth(env, force = false) {
       "discovered_links=excluded.discovered_links, checked_count=excluded.checked_count, working_count=excluded.working_count, " +
       "failed_count=excluded.failed_count, duration_ms=excluded.duration_ms, checker=excluded.checker"
     ).bind(checkedAt, attemptedAt, sourceCount, discoveredLinks, checkedCount, workingCount, failedCount,
-      durationMs, String(snapshot.checker || "mtproxy-checker").slice(0, 80)).run();
+      durationMs, checkerName).run();
 
-    return { checkedAt, checkedCount: writes.length, workingCount, failedCount, sourceCount };
+    return { checkedAt, checkedCount, workingCount, failedCount, sourceCount, skipped, skipReason: skipped ? skipReason : null };
   } catch (error) {
     await env.DB.prepare(
       "INSERT INTO proxy_mtproto_meta (id, attempted_at) VALUES (1, ?) " +
@@ -669,7 +675,7 @@ async function getVerifiedProxyCatalog(env, ctx) {
     env.DB.prepare(
       "SELECT checked_at AS checkedAt, attempted_at AS attemptedAt, source_count AS sourceCount, " +
       "discovered_links AS discoveredLinks, checked_count AS checkedCount, " +
-      "working_count AS workingCount, failed_count AS failedCount, duration_ms AS durationMs " +
+      "working_count AS workingCount, failed_count AS failedCount, duration_ms AS durationMs, checker " +
       "FROM proxy_mtproto_meta WHERE id=1"
     ).first(),
     env.DB.prepare(
@@ -710,6 +716,8 @@ async function getVerifiedProxyCatalog(env, ctx) {
     mtproto: {
       checkLevel: "MTProto handshake + HelpGetNearestDC",
       checkedAt: mtprotoMeta?.checkedAt || null,
+      status: (mtprotoMeta?.checker || "").startsWith("skipped:") ? "skipped" : (mtprotoMeta?.checkedAt ? "complete" : "pending"),
+      skipReason: (mtprotoMeta?.checker || "").startsWith("skipped:") ? mtprotoMeta.checker.slice(8) : null,
       pending: mtprotoSnapshotStale,
       discoveredLinks: Number(mtprotoMeta?.discoveredLinks || 0),
       checkedCount: Number(mtprotoMeta?.checkedCount || 0),
@@ -889,6 +897,8 @@ async function getHealth(env) {
       onlinePercent: uniqueChecked ? Math.round(online / uniqueChecked * 100) : 0,
       mtprotoCheckLevel: "MTProto handshake + HelpGetNearestDC",
       mtprotoCheckedAt: mtprotoMeta?.checkedAt || null,
+      mtprotoStatus: (mtprotoMeta?.checker || "").startsWith("skipped:") ? "skipped" : (mtprotoMeta?.checkedAt ? "complete" : "pending"),
+      mtprotoSkipReason: (mtprotoMeta?.checker || "").startsWith("skipped:") ? mtprotoMeta.checker.slice(8) : null,
       mtprotoLastAttemptAt: mtprotoMeta?.attemptedAt || null,
       mtprotoDiscoveredLinks: Number(mtprotoMeta?.discoveredLinks || 0),
       mtprotoChecked: mtprotoOnline + mtprotoOffline,
