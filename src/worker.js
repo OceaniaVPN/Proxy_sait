@@ -157,14 +157,49 @@ async function probeTcpTargets(targets) {
 }
 
 
-async function getProxyFeed(env) {
-  if (!env.ASSETS) throw new Error("Assets binding is not configured");
-  const response = await env.ASSETS.fetch(new Request("https://proxy-sait.internal/proxies.txt", {
-    method: "GET",
-    headers: { "Accept": "text/plain" }
+const VERIFIED_PROXY_SOURCES = [
+  {
+    name: "iwizard7 stable (MTProto checked within 24h)",
+    url: "https://iwizard7.github.io/MTProxy_list/stable.txt"
+  },
+  {
+    name: "0xRadikal stable (MTProto verified, >=90% recent checks)",
+    url: "https://raw.githubusercontent.com/0xRadikal/Free-Telegram-Proxy/main/stable/tg.txt"
+  }
+];
+
+async function getProxyFeed() {
+  const results = await Promise.all(VERIFIED_PROXY_SOURCES.map(async source => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    try {
+      const response = await fetch(source.url, {
+        headers: { "Accept": "text/plain" },
+        redirect: "follow",
+        signal: controller.signal
+      });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const body = await response.text();
+      if (!body.trim() || body.length > 512 * 1024) throw new Error("Empty or oversized feed");
+      return { source, body };
+    } catch (error) {
+      console.warn("Verified proxy source failed:", source.name, error?.message || String(error));
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
   }));
-  if (!response.ok) throw new Error("Could not read proxies.txt");
-  return response.text();
+
+  const good = results.filter(Boolean);
+  if (!good.length) throw new Error("All verified MTProto sources are unavailable; previous cache is preserved");
+
+  // These upstream feeds contain only links that passed real MTProto relay checks.
+  // The local TCP probe below is an additional reachability filter, not a substitute for that handshake.
+  const merged = good.map(item => "# " + item.source.name + "\n" + item.body.trim()).join("\n");
+  if (!extractAllowedProxyTargets(merged).size) {
+    throw new Error("No valid MTProto proxy links found; previous cache is preserved");
+  }
+  return merged;
 }
 
 async function hashProxyFeed(feed) {
@@ -174,16 +209,19 @@ async function hashProxyFeed(feed) {
 
 async function refreshProxyStatusCache(env) {
   if (!env.DB) throw new Error("D1 binding DB is not configured");
-  const feed = await getProxyFeed(env);
+  const feed = await getProxyFeed();
   const feedHash = await hashProxyFeed(feed);
   const saved = await env.DB.prepare(
     "SELECT feed_hash FROM proxy_status_meta WHERE id = 1"
   ).first();
 
-  if (saved?.feed_hash === feedHash) return { changed: false };
+  // Re-check even when the upstream list is unchanged: proxies can stop working between publishes.
 
   const targets = Array.from(extractAllowedProxyTargets(feed).values());
+  if (!targets.length) throw new Error("No MTProto proxy candidates; previous cache is preserved");
   const checked = await probeTcpTargets(targets);
+  const onlineCount = checked.filter(item => item.status === "online").length;
+  if (!onlineCount) throw new Error("No candidate passed the local reachability check; previous cache is preserved");
   const checkedAt = new Date().toISOString();
 
   await env.DB.prepare("DELETE FROM proxy_status_cache").run();
@@ -200,7 +238,7 @@ async function refreshProxyStatusCache(env) {
     "INSERT INTO proxy_status_meta (id, feed_hash, checked_at, target_count) VALUES (1, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET feed_hash = excluded.feed_hash, checked_at = excluded.checked_at, target_count = excluded.target_count"
   ).bind(feedHash, checkedAt, checked.length).run();
 
-  return { changed: true, targetCount: checked.length, checkedAt };
+  return { changed: true, targetCount: checked.length, onlineCount, checkedAt };
 }
 
 async function getCachedProxyStatuses(env) {
