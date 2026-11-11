@@ -23,6 +23,9 @@ const PROXY_SOURCES = [
   { name: "iwizard7/MTProxy_list:stable", url: "https://iwizard7.github.io/MTProxy_list/stable.txt" },
   { name: "0xRadikal/Free-Telegram-Proxy:fast", url: "https://raw.githubusercontent.com/0xRadikal/Free-Telegram-Proxy/main/fast/tg.txt" },
   { name: "0xRadikal/Free-Telegram-Proxy:stable", url: "https://raw.githubusercontent.com/0xRadikal/Free-Telegram-Proxy/main/stable/tg.txt" },
+  { name: "0xRadikal/Free-Telegram-Proxy:resilient-tg", url: "https://raw.githubusercontent.com/0xRadikal/Free-Telegram-Proxy/main/resilient/tg.txt" },
+  { name: "0xRadikal/Free-Telegram-Proxy:resilient-tme", url: "https://raw.githubusercontent.com/0xRadikal/Free-Telegram-Proxy/main/resilient/tme.txt" },
+  { name: "0xRadikal/Free-Telegram-Proxy:top100", url: "https://raw.githubusercontent.com/0xRadikal/Free-Telegram-Proxy/main/top100.txt" },
   { name: "SoliSpirit/mtproto:all_proxies", url: "https://raw.githubusercontent.com/SoliSpirit/mtproto/master/all_proxies.txt" }
 ];
 
