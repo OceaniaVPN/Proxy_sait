@@ -17,7 +17,7 @@ const PROXY_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const MAX_PROXY_TARGETS = 240;
 const MAX_PROXY_SOURCE_BYTES = 512 * 1024;
 const PROXY_SOURCES = [
-  { name: "iwizard7/MTProxy_list:working", url: "https://raw.githubusercontent.com/iwizard7/MTProxy_list/data/proxies/working.txt" },
+  { name: "iwizard7/MTProxy_list:working", url: "https://raw.githubusercontent.com/iwizard7/MTProxy_list/data/working.txt" },
   { name: "0xRadikal/Free-Telegram-Proxy:fast", url: "https://raw.githubusercontent.com/0xRadikal/Free-Telegram-Proxy/main/fast/tg.txt" }
 ];
 
