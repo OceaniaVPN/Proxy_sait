@@ -687,8 +687,10 @@ async function getVerifiedProxyCatalog(env, ctx) {
     if (isMtprotoProxyUrl(value)) {
       const linkKey = await hashMtprotoLink(value);
       const linkStatus = mtprotoStatusMap.get(linkKey);
-      if (linkStatus?.status !== "online") continue;
-      mtprotoVerifiedCount++;
+      // Until a fresh per-secret MTProto result exists, keep the link if its TCP endpoint is online.
+      // Once deep-tested, require the exact secret to pass Telegram's MTProto check.
+      if (linkStatus && linkStatus.status !== "online") continue;
+      if (linkStatus?.status === "online") mtprotoVerifiedCount++;
     }
     const identity = proxyLinkIdentity(value);
     if (!uniqueProxies.has(identity)) uniqueProxies.set(identity, value);
