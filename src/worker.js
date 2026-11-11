@@ -503,10 +503,10 @@ async function getVerifiedProxyCatalog(env, ctx) {
     ).bind(cutoff, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()).all(),
     env.DB.prepare(
       "SELECT COUNT(*) AS total, " +
-      "SUM(CASE WHEN q.checked_at >= ? THEN 1 ELSE 0 END) AS checked, " +
+      "SUM(CASE WHEN q.checked_at >= ? AND q.next_check_at > ? THEN 1 ELSE 0 END) AS checked, " +
       "SUM(CASE WHEN q.next_check_at <= ? THEN 1 ELSE 0 END) AS pending " +
       "FROM proxy_probe_queue q"
-    ).bind(cutoff, now).first()
+    ).bind(cutoff, now, now).first()
   ]);
 
   const proxies = (rows.results || []).map(row => row.proxy_url).filter(value => typeof value === "string" && value.trim());
@@ -601,10 +601,10 @@ async function getHealth(env) {
     ).first(),
     env.DB.prepare(
       "SELECT COUNT(*) AS total, " +
-      "SUM(CASE WHEN checked_at >= ? THEN 1 ELSE 0 END) AS checkedRecently, " +
+      "SUM(CASE WHEN checked_at >= ? AND next_check_at > ? THEN 1 ELSE 0 END) AS checkedRecently, " +
       "SUM(CASE WHEN next_check_at <= ? THEN 1 ELSE 0 END) AS pending " +
       "FROM proxy_probe_queue"
-    ).bind(cutoff, new Date().toISOString()).first(),
+    ).bind(cutoff, new Date().toISOString(), new Date().toISOString()).first(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM proxy_catalog_links").first()
   ]);
 
