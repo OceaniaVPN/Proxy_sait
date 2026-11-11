@@ -387,6 +387,13 @@ async function getVerifiedProxyFeed(env, ctx) {
   const refreshInProgress = Number.isFinite(lockStartedAt) && Date.now() - lockStartedAt < 10 * 60 * 1000;
   const meta = await env.DB.prepare("SELECT checked_at FROM proxy_status_meta WHERE id=1").first();
   const checkedAt = meta?.checked_at ? Date.parse(meta.checked_at) : NaN;
+  // A previous deployment may leave status rows but no proxy_links rows.
+  // In that case the feed is empty even though proxy_status_meta looks fresh.
+  const feedRows = await env.DB.prepare(
+    "SELECT l.proxy_url FROM proxy_links l JOIN proxy_status_cache c ON c.server=l.server AND c.port=l.port " +
+    "WHERE c.status='online' AND c.checked_at=? ORDER BY COALESCE(c.latency_ms,2147483647)"
+  ).bind(meta?.checked_at || "").all();
+  const hasPublishedProxies = (feedRows.results || []).length > 0;
 
   if (refreshInProgress) {
     return new Response(pendingMessage, {
@@ -395,18 +402,14 @@ async function getVerifiedProxyFeed(env, ctx) {
     });
   }
 
-  if (!Number.isFinite(checkedAt) || Date.now() - checkedAt > PROXY_CACHE_MAX_AGE_MS) {
+  if (!Number.isFinite(checkedAt) || Date.now() - checkedAt > PROXY_CACHE_MAX_AGE_MS || !hasPublishedProxies) {
     if (ctx?.waitUntil) ctx.waitUntil(runLockedProxyRefresh(env).catch(error => console.error("Proxy refresh failed:", error)));
     return new Response(pendingMessage, {
       status: 503,
       headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "X-Proxy-Refresh": "pending" }
     });
   }
-  const rows = await env.DB.prepare(
-    "SELECT l.proxy_url FROM proxy_links l JOIN proxy_status_cache c ON c.server=l.server AND c.port=l.port " +
-    "WHERE c.status='online' AND c.checked_at=? ORDER BY COALESCE(c.latency_ms,2147483647)"
-  ).bind(meta.checked_at).all();
-  return new Response((rows.results || []).map(row => row.proxy_url).join("\n"), {
+  return new Response((feedRows.results || []).map(row => row.proxy_url).join("\n"), {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-store",
@@ -730,7 +733,12 @@ export default {
     if (!env.DB) throw new Error("D1 binding DB is not configured");
     const meta = await env.DB.prepare("SELECT checked_at FROM proxy_status_meta WHERE id=1").first();
     const last = meta?.checked_at ? Date.parse(meta.checked_at) : NaN;
-    if (Number.isFinite(last) && Date.now() - last < PROXY_REFRESH_INTERVAL_MS) return;
+    const published = await env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM proxy_links l JOIN proxy_status_cache c " +
+      "ON c.server=l.server AND c.port=l.port WHERE c.status='online' AND c.checked_at=?"
+    ).bind(meta?.checked_at || "").first();
+    const hasPublishedProxies = Number(published?.count || 0) > 0;
+    if (Number.isFinite(last) && Date.now() - last < PROXY_REFRESH_INTERVAL_MS && hasPublishedProxies) return;
     const result = await runLockedProxyRefresh(env);
     if (result.changed) {
       console.log("Proxy catalog refreshed:", result.onlineCount + "/" + result.targetCount + " online", "sources=" + result.sourceCount, result.checkedAt);
