@@ -429,6 +429,31 @@ async function getCachedProxyStatuses(env) {
 
 async function getHealth(env) {
   if (!env.DB) return json({ ok: false, error: "D1 binding DB is not configured." }, 503);
+
+  // Return an actionable setup response instead of a blank 500 when migration 0004
+  // has not yet been applied to the remote D1 database.
+  const sourceTable = await env.DB.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='proxy_source_health' LIMIT 1"
+  ).first();
+  if (!sourceTable) {
+    return json({
+      ok: false,
+      code: "MIGRATION_REQUIRED",
+      message: "Для статистики источников не применена миграция 0004_proxy_source_health.sql.",
+      migration: "npx wrangler d1 migrations apply steklovpn-shared --remote",
+      configuredSources: PROXY_SOURCES.length,
+      sources: PROXY_SOURCES.map(item => ({
+        source: item.name,
+        url: item.url,
+        status: "migration_required",
+        parsedCount: null,
+        checkedCount: null,
+        onlineCount: null,
+        offlineCount: null
+      }))
+    }, 503);
+  }
+
   const [meta, rows, sources, lock] = await Promise.all([
     env.DB.prepare("SELECT checked_at, target_count FROM proxy_status_meta WHERE id=1").first(),
     env.DB.prepare("SELECT status, COUNT(*) AS count FROM proxy_status_cache GROUP BY status").all(),
@@ -645,8 +670,12 @@ export default {
       }
     } catch (error) {
       console.error("Proxy Worker error:", error);
-      response = url.pathname.startsWith("/api/")
-        ? json({ error: "Внутренняя ошибка сервера." }, 500)
+      response = (url.pathname.startsWith("/api/") || url.pathname === "/health")
+        ? json({
+            ok: false,
+            error: "Внутренняя ошибка при чтении D1. Проверь удалённые миграции и привязку DB.",
+            hint: "Выполни: npx wrangler d1 migrations list steklovpn-shared --remote"
+          }, 500)
         : new Response("Internal Server Error", { status: 500 });
     }
 
