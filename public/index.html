@@ -788,7 +788,7 @@
       return String(server).trim().toLowerCase() + '|' + String(port);
     }
 
-    async function checkProxyStatuses(snapshot) {
+    async async function checkProxyStatuses(snapshot) {
       // Получаем только готовые результаты из D1. Никаких TCP-проверок в запросе посетителя.
       try {
         const response = await fetch('/api/proxy-status', {
