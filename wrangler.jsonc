@@ -16,7 +16,7 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "steklovpn-shared",
+      "database_name": "steklo-vpn",
       "database_id": "63c7e332-c9b9-47c5-8943-cf880287beb6",
       "migrations_dir": "migrations"
     }
