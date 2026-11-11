@@ -834,18 +834,16 @@
 
         await Promise.all(snapshot.map(async proxy => {
           if (proxy.protocol === 'MTProto') {
-            proxy.checkType = 'mtproto';
             const linkKey = await mtprotoLinkKey(proxy.url);
             const exact = linkStatusMap.get(linkKey);
-            if (!exact) {
-              proxy.pingStatus = 'unknown';
-              proxy.latencyMs = null;
+            if (exact) {
+              proxy.checkType = 'mtproto';
+              proxy.pingStatus = ['online', 'offline'].includes(exact.status) ? exact.status : 'unknown';
+              proxy.latencyMs = Number.isFinite(Number(exact.latencyMs)) ? Number(exact.latencyMs) : null;
+              proxy.deepCheckedAt = exact.checkedAt || null;
               return;
             }
-            proxy.pingStatus = ['online', 'offline'].includes(exact.status) ? exact.status : 'unknown';
-            proxy.latencyMs = Number.isFinite(Number(exact.latencyMs)) ? Number(exact.latencyMs) : null;
-            proxy.deepCheckedAt = exact.checkedAt || null;
-            return;
+            // Deep MTProto test has not run yet: show the existing TCP result instead of hiding the proxy.
           }
 
           proxy.checkType = 'tcp';
