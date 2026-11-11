@@ -413,7 +413,7 @@ async function getVerifiedProxyFeed(env, ctx) {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-store",
-      "X-Proxy-Count": String(rows.results?.length || 0),
+      "X-Proxy-Count": String(feedRows.results?.length || 0),
       "X-Proxy-Checked-At": meta.checked_at
     }
   });
