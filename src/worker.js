@@ -271,10 +271,15 @@ async function refreshProxyStatusCache(env) {
   }
 
   const candidates = new Map();
-  for (let offset = 0; candidates.size < MAX_PROXY_TARGETS; offset++) {
+  const rotationSlot = Math.floor(Date.now() / PROXY_REFRESH_INTERVAL_MS);
+  const maxPoolLength = Math.max(0, ...pools.map(pool => pool.length));
+  for (let offset = 0; candidates.size < MAX_PROXY_TARGETS && offset < maxPoolLength; offset++) {
     let foundAtOffset = false;
     for (const pool of pools) {
-      const link = pool[offset];
+      if (!pool.length) continue;
+      // Move eight positions per five-hour refresh window so later entries are eventually checked.
+      const startIndex = (rotationSlot * 8) % pool.length;
+      const link = pool[(startIndex + offset) % pool.length];
       if (!link) continue;
       foundAtOffset = true;
       const key = proxyTargetKey(link.server, link.port);
