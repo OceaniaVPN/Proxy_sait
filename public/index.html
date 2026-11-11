@@ -604,7 +604,7 @@
             seen.add(normalized);
             links.push({
               url: normalized, name: server + (port ? ':' + port : ''), protocol,
-              server: server.trim(), port, pingStatus: port ? 'checking' : 'unknown', latencyMs: null
+              server: server.trim(), port, pingStatus: 'online', latencyMs: null
             });
           } catch (_) { /* Пропускаем некорректные строки. */ }
         }
@@ -641,7 +641,7 @@
       const pingStatus = proxy.pingStatus || 'checking';
       caption.className = 'server-caption server-status status-' + pingStatus;
       caption.textContent = pingStatus === 'online'
-        ? 'TCP ПОРТ ОТВЕЧАЕТ · ' + proxy.latencyMs + ' МС'
+        ? (proxy.latencyMs ? 'TCP ПОРТ ОТВЕЧАЕТ · ' + proxy.latencyMs + ' МС' : 'TCP ПОРТ ОТВЕЧАЕТ')
         : pingStatus === 'offline' ? 'TCP НЕТ ОТВЕТА'
         : pingStatus === 'unknown' ? 'НЕТ ДАННЫХ ДЛЯ TCP-ПРОВЕРКИ'
         : 'ПРОВЕРЯЕМ TCP…';
@@ -903,7 +903,6 @@
           } else {
             $('#results-label').textContent = `Найдено рабочих серверов · ${proxies.length}`;
             showToast(`Каталог обновлён · ${proxies.length} серверов`);
-            void checkProxyStatuses(proxies.slice());
           }
           return;
         }
