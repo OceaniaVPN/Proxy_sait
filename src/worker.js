@@ -243,7 +243,7 @@ async function refreshProxyStatusCache(env) {
     try {
       const feed = await fetchProxySource(source);
       const links = extractTelegramProxyLinks(feed, source.name);
-      if (!links.size) throw new Error("No valid MTProto links");
+      if (!links.size) throw new Error("No valid proxy links");
       return { source, feed, links };
     } catch (error) {
       console.warn("Proxy source failed:", source.name, error?.message || String(error));
@@ -284,7 +284,7 @@ async function refreshProxyStatusCache(env) {
   }
 
   const selected = Array.from(candidates.values());
-  if (!selected.length) throw new Error("No MTProto proxies found");
+  if (!selected.length) throw new Error("No proxy endpoints found");
   const checked = await probeTcpTargets(selected.map(item => ({ server: item.server, port: item.port })));
   const checkedAt = new Date().toISOString();
 
