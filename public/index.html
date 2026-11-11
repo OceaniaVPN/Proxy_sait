@@ -697,7 +697,7 @@
     function render() {
       const query = $('#search').value.trim().toLocaleLowerCase('ru');
       const direction = $('#sort').value;
-      // Display only endpoints that passed both upstream MTProto verification and our latest TCP check.
+      // Display only endpoints whose latest TCP reachability check succeeded; TCP alone does not verify the Telegram protocol.
       const workingProxies = proxies.filter(proxy => proxy.pingStatus === 'online');
       const filtered = workingProxies
         .filter(proxy => (activeProtocol === 'all' || proxy.protocol === activeProtocol)
