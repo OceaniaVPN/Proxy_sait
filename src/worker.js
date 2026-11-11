@@ -19,7 +19,7 @@ const MAX_PROXY_SOURCE_BYTES = 512 * 1024;
 const PROXY_SOURCES = [
   { name: "OceaniaVPN/Proxy_sait:public/proxies.txt", url: "https://raw.githubusercontent.com/OceaniaVPN/Proxy_sait/main/public/proxies.txt" },
   { name: "OceaniaVPN/Proxy_sait:data/proxies.txt", url: "https://raw.githubusercontent.com/OceaniaVPN/Proxy_sait/main/data/proxies.txt" },
-  { name: "iwizard7/MTProxy_list:working", url: "https://raw.githubusercontent.com/iwizard7/MTProxy_list/data/working.txt" },
+  { name: "iwizard7/MTProxy_list:working", url: "https://iwizard7.github.io/MTProxy_list/working.txt" },
   { name: "iwizard7/MTProxy_list:stable", url: "https://iwizard7.github.io/MTProxy_list/stable.txt" },
   { name: "0xRadikal/Free-Telegram-Proxy:fast", url: "https://raw.githubusercontent.com/0xRadikal/Free-Telegram-Proxy/main/fast/tg.txt" },
   { name: "0xRadikal/Free-Telegram-Proxy:stable", url: "https://raw.githubusercontent.com/0xRadikal/Free-Telegram-Proxy/main/stable/tg.txt" },
@@ -419,6 +419,34 @@ async function getVerifiedProxyFeed(env, ctx) {
   });
 }
 
+async function getVerifiedProxyCatalog(env, ctx) {
+  if (!env.DB) return json({ error: "Database binding DB is not configured." }, 503);
+
+  const lock = await env.DB.prepare("SELECT started_at FROM proxy_refresh_lock WHERE id=1").first();
+  const lockStartedAt = lock?.started_at ? Date.parse(lock.started_at) : NaN;
+  const refreshInProgress = Number.isFinite(lockStartedAt) && Date.now() - lockStartedAt < 10 * 60 * 1000;
+  const meta = await env.DB.prepare("SELECT checked_at FROM proxy_status_meta WHERE id=1").first();
+  const checkedAt = meta?.checked_at ? Date.parse(meta.checked_at) : NaN;
+  const rows = await env.DB.prepare(
+    "SELECT l.proxy_url FROM proxy_links l JOIN proxy_status_cache c ON c.server=l.server AND c.port=l.port " +
+    "WHERE c.status='online' AND c.checked_at=? ORDER BY COALESCE(c.latency_ms,2147483647)"
+  ).bind(meta?.checked_at || "").all();
+  const proxies = (rows.results || []).map(row => row.proxy_url).filter(value => typeof value === "string" && value.trim());
+
+  if (refreshInProgress || !Number.isFinite(checkedAt) || Date.now() - checkedAt > PROXY_CACHE_MAX_AGE_MS || !proxies.length) {
+    if (!refreshInProgress && ctx?.waitUntil) {
+      ctx.waitUntil(runLockedProxyRefresh(env).catch(error => console.error("Proxy refresh failed:", error)));
+    }
+    return json(
+      { pending: true, count: 0, checkedAt: meta?.checked_at || null, message: "Каталог обновляется." },
+      503,
+      { "X-Proxy-Refresh": "pending", "Retry-After": "4" }
+    );
+  }
+
+  return json({ pending: false, count: proxies.length, checkedAt: meta.checked_at, proxies });
+}
+
 async function getCachedProxyStatuses(env) {
   if (!env.DB) return json({ error: "Database binding DB is not configured." }, 503);
   const [meta, rows] = await Promise.all([
@@ -568,6 +596,9 @@ async function handleProxyStatus(request, env, url) {
 async function handleApi(request, env, url, ctx) {
   const path = url.pathname;
   const method = request.method;
+  if (path === "/api/proxies" && method === "GET") {
+    return getVerifiedProxyCatalog(env, ctx);
+  }
   if (path === "/api/proxy-status" && method === "GET") {
     return getCachedProxyStatuses(env);
   }
@@ -716,7 +747,7 @@ export default {
 
     const headers = new Headers(response.headers);
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value);
-    if (url.pathname.startsWith("/api/") || url.pathname === "/health") {
+    if (url.pathname.startsWith("/api/") || url.pathname === "/health" || url.pathname === "/proxies.txt") {
       headers.set("Cache-Control", "no-store");
       headers.set("Pragma", "no-cache");
     } else if (url.pathname === "/" || url.pathname.endsWith(".html")) {
