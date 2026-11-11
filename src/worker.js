@@ -11,14 +11,19 @@ const VALID_SEASONS = new Set(["spring", "summer", "autumn", "winter"]);
 const COOKIE_NAME = "steklovpn_admin";
 const SESSION_SECONDS = 8 * 60 * 60;
 const encoder = new TextEncoder();
-const TCP_PROBE_VERSION = "v3";
+const TCP_PROBE_VERSION = "v4";
 const PROXY_REFRESH_INTERVAL_MS = 5 * 60 * 60 * 1000;
 const PROXY_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
-const MAX_PROXY_TARGETS = 240;
+const MAX_PROXY_TARGETS = 48;
 const MAX_PROXY_SOURCE_BYTES = 512 * 1024;
 const PROXY_SOURCES = [
+  { name: "OceaniaVPN/Proxy_sait:public/proxies.txt", url: "https://raw.githubusercontent.com/OceaniaVPN/Proxy_sait/main/public/proxies.txt" },
+  { name: "OceaniaVPN/Proxy_sait:data/proxies.txt", url: "https://raw.githubusercontent.com/OceaniaVPN/Proxy_sait/main/data/proxies.txt" },
   { name: "iwizard7/MTProxy_list:working", url: "https://raw.githubusercontent.com/iwizard7/MTProxy_list/data/working.txt" },
-  { name: "0xRadikal/Free-Telegram-Proxy:fast", url: "https://raw.githubusercontent.com/0xRadikal/Free-Telegram-Proxy/main/fast/tg.txt" }
+  { name: "iwizard7/MTProxy_list:stable", url: "https://iwizard7.github.io/MTProxy_list/stable.txt" },
+  { name: "0xRadikal/Free-Telegram-Proxy:fast", url: "https://raw.githubusercontent.com/0xRadikal/Free-Telegram-Proxy/main/fast/tg.txt" },
+  { name: "0xRadikal/Free-Telegram-Proxy:stable", url: "https://raw.githubusercontent.com/0xRadikal/Free-Telegram-Proxy/main/stable/tg.txt" },
+  { name: "SoliSpirit/mtproto:all_proxies", url: "https://raw.githubusercontent.com/SoliSpirit/mtproto/master/all_proxies.txt" }
 ];
 
 function json(data, status = 200, extraHeaders = {}) {
@@ -158,57 +163,12 @@ async function probeTcpTargets(targets) {
       results[index] = await probeTcpTarget(targets[index]);
     }
   };
-  // Keep below the Workers outbound-connection concurrency limit.
-  const count = Math.min(4, targets.length);
+  // Stay within the Workers outbound-connection limit while finishing a bounded probe batch.
+  const count = Math.min(6, targets.length);
   await Promise.all(Array.from({ length: count }, () => worker()));
   return results;
 }
 
-
-const VERIFIED_PROXY_SOURCES = [
-  {
-    name: "iwizard7 stable (MTProto checked within 24h)",
-    url: "https://iwizard7.github.io/MTProxy_list/stable.txt"
-  },
-  {
-    name: "0xRadikal stable (MTProto verified, >=90% recent checks)",
-    url: "https://raw.githubusercontent.com/0xRadikal/Free-Telegram-Proxy/main/stable/tg.txt"
-  }
-];
-
-async function getProxyFeed() {
-  const results = await Promise.all(VERIFIED_PROXY_SOURCES.map(async source => {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12000);
-    try {
-      const response = await fetch(source.url, {
-        headers: { "Accept": "text/plain" },
-        redirect: "follow",
-        signal: controller.signal
-      });
-      if (!response.ok) throw new Error("HTTP " + response.status);
-      const body = await response.text();
-      if (!body.trim() || body.length > 512 * 1024) throw new Error("Empty or oversized feed");
-      return { source, body };
-    } catch (error) {
-      console.warn("Verified proxy source failed:", source.name, error?.message || String(error));
-      return null;
-    } finally {
-      clearTimeout(timeout);
-    }
-  }));
-
-  const good = results.filter(Boolean);
-  if (!good.length) throw new Error("All verified MTProto sources are unavailable; previous cache is preserved");
-
-  // These upstream feeds contain only links that passed real MTProto relay checks.
-  // The local TCP probe below is an additional reachability filter, not a substitute for that handshake.
-  const merged = good.map(item => "# " + item.source.name + "\n" + item.body.trim()).join("\n");
-  if (!extractAllowedProxyTargets(merged).size) {
-    throw new Error("No valid MTProto proxy links found; previous cache is preserved");
-  }
-  return merged;
-}
 
 async function hashProxyFeed(feed) {
   const digest = await crypto.subtle.digest("SHA-256", encoder.encode(feed + "\n" + TCP_PROBE_VERSION));
@@ -217,7 +177,7 @@ async function hashProxyFeed(feed) {
 
 function extractTelegramProxyLinks(feed, sourceName) {
   const links = new Map();
-  const pattern = /(?:tg:\/\/proxy\?[^\s"'<>]+|https?:\/\/t\.me\/proxy\?[^\s"'<>]+)/gi;
+  const pattern = /(?:tg:\/\/(?:proxy|socks)\?[^\s"'<>]+|https?:\/\/t\.me\/(?:proxy|socks|webproxy)\?[^\s"'<>]+|socks5:\/\/[^\s"'<>]+)/gi;
   for (const rawLine of feed.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#") || line.startsWith("//")) continue;
@@ -225,18 +185,33 @@ function extractTelegramProxyLinks(feed, sourceName) {
       candidate = candidate.replace(/[),.;\]}]+$/g, "");
       try {
         const parsed = new URL(candidate);
-        const valid = (parsed.protocol === "tg:" && parsed.hostname.toLowerCase() === "proxy")
-          || (parsed.protocol === "https:" && parsed.hostname.toLowerCase() === "t.me" && parsed.pathname.toLowerCase() === "/proxy");
-        if (!valid) continue;
-        const server = (parsed.searchParams.get("server") || "").trim();
-        const port = Number(parsed.searchParams.get("port"));
+        let kind = "";
+        if (parsed.protocol === "tg:" && ["proxy", "socks"].includes(parsed.hostname.toLowerCase())) {
+          kind = parsed.hostname.toLowerCase();
+        } else if ((parsed.protocol === "https:" || parsed.protocol === "http:")
+          && parsed.hostname.toLowerCase() === "t.me"
+          && ["/proxy", "/socks", "/webproxy"].includes(parsed.pathname.toLowerCase())) {
+          kind = parsed.pathname.slice(1).toLowerCase();
+        } else if (parsed.protocol === "socks5:") {
+          kind = "socks5";
+        }
+        if (!kind) continue;
+
+        const server = (parsed.searchParams.get("server") || (kind === "socks5" ? parsed.hostname : "")).trim();
+        const rawPort = parsed.searchParams.get("port") || parsed.port;
+        const port = rawPort ? Number(rawPort) : (kind === "webproxy" ? 443 : 0);
         const secret = parsed.searchParams.get("secret") || "";
-        if (!server || server.length > 253 || !Number.isInteger(port) || port < 1 || port > 65535
-          || secret.length < 16 || secret.length > 512) continue;
+        if (!server || server.length > 253 || !Number.isInteger(port) || port < 1 || port > 65535) continue;
+
+        // MTProto requires its secret; SOCKS and WEB links have different URL formats.
+        if (kind === "proxy" && (secret.length < 16 || secret.length > 512)) continue;
+
         const target = { server, port, url: parsed.toString(), source: sourceName };
         const key = proxyTargetKey(server, port);
         if (!links.has(key)) links.set(key, target);
-      } catch (_) {}
+      } catch (_) {
+        // Пропускаем некорректные строки из списка.
+      }
     }
   }
   return links;
@@ -279,24 +254,36 @@ async function refreshProxyStatusCache(env) {
   if (!loaded.length) throw new Error("All proxy sources failed; existing catalog kept");
   const loadedNames = new Set(loaded.map(item => item.source.name));
   const failedNames = new Set(PROXY_SOURCES.filter(item => !loadedNames.has(item.name)).map(item => item.name));
+
+  // Build one pool per source and interleave them. This prevents a large repository
+  // file from consuming the entire probe budget before other sources are considered.
+  const pools = loaded.map(item => Array.from(item.links.values()));
+  for (const sourceName of failedNames) {
+    const preserved = (previous.results || [])
+      .filter(row => row.source === sourceName)
+      .map(row => ({
+        server: row.server,
+        port: Number(row.port),
+        url: row.proxy_url,
+        source: row.source
+      }));
+    if (preserved.length) pools.push(preserved);
+  }
+
   const candidates = new Map();
-
-  for (const item of loaded) {
-    for (const [key, link] of item.links) {
-      if (!candidates.has(key)) candidates.set(key, link);
-      if (candidates.size >= MAX_PROXY_TARGETS) break;
+  for (let offset = 0; candidates.size < MAX_PROXY_TARGETS; offset++) {
+    let foundAtOffset = false;
+    for (const pool of pools) {
+      const link = pool[offset];
+      if (!link) continue;
+      foundAtOffset = true;
+      const key = proxyTargetKey(link.server, link.port);
+      if (!candidates.has(key) && candidates.size < MAX_PROXY_TARGETS) candidates.set(key, link);
     }
-    if (candidates.size >= MAX_PROXY_TARGETS) break;
+    if (!foundAtOffset) break;
   }
 
-  for (const row of (previous.results || [])) {
-    const key = proxyTargetKey(row.server, row.port);
-    if (failedNames.has(row.source) && !candidates.has(key) && candidates.size < MAX_PROXY_TARGETS) {
-      candidates.set(key, { server: row.server, port: Number(row.port), url: row.proxy_url, source: row.source });
-    }
-  }
-
-  const selected = Array.from(candidates.values()).slice(0, MAX_PROXY_TARGETS);
+  const selected = Array.from(candidates.values());
   if (!selected.length) throw new Error("No MTProto proxies found");
   const checked = await probeTcpTargets(selected.map(item => ({ server: item.server, port: item.port })));
   const checkedAt = new Date().toISOString();
