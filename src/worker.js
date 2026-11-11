@@ -287,7 +287,7 @@ async function syncProxySources(env) {
       sourceFingerprintParts.push(item.source.url + "\n" + item.feed);
       parsedLinkCount += item.links.size;
       for (const link of item.links.values()) {
-        const linkId = await sha256Hex(item.source.name + "\n" + link.url);
+        const linkId = item.source.name + "|" + link.url;
         linkStatements.push(env.DB.prepare(
           "INSERT INTO proxy_catalog_links (link_id, server, port, proxy_url, source, first_seen_at, last_seen_at) " +
           "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(link_id) DO UPDATE SET " +
