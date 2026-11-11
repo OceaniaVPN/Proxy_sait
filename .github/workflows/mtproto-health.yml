@@ -1,6 +1,13 @@
 name: MTProto deep health check
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/mtproto-health.yml"
+      - ".github/scripts/check_mtproto.py"
+      - "public/proxies.txt"
+      - "data/proxies.txt"
   schedule:
     - cron: "17 */5 * * *"
   workflow_dispatch:
@@ -34,7 +41,9 @@ jobs:
 
       - name: Build real MTProto checker
         shell: bash
+        continue-on-error: true
         run: |
+          set -e
           git clone --depth 1 https://github.com/imbecility/mtproxy-checker.git /tmp/mtproxy-checker
           cd /tmp/mtproxy-checker
           go build -trimpath -ldflags="-s -w" -o "$GITHUB_WORKSPACE/mtproxy-checker" ./cmd
