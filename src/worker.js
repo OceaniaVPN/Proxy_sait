@@ -351,7 +351,7 @@ async function syncProxySources(env) {
 
 
 
-async function isMtprotoProxyUrl(value) {
+function isMtprotoProxyUrl(value) {
   try {
     const parsed = new URL(value);
     return (parsed.protocol === "tg:" && parsed.hostname.toLowerCase() === "proxy")
@@ -641,12 +641,18 @@ async function getVerifiedProxyCatalog(env, ctx) {
   ).bind(now).first();
   const needsSourceSync = !Number.isFinite(sourceCheckedAt) || Date.now() - sourceCheckedAt >= PROXY_REFRESH_INTERVAL_MS;
   const hasDueChecks = Number(due?.count || 0) > 0;
+  const mtprotoMetaBefore = await env.DB.prepare(
+    "SELECT checked_at, attempted_at FROM proxy_mtproto_meta WHERE id=1"
+  ).first();
+  const mtprotoAttemptAt = Date.parse(mtprotoMetaBefore?.attempted_at || "");
+  const needsMtprotoSync = !Number.isFinite(mtprotoAttemptAt)
+    || Date.now() - mtprotoAttemptAt >= MT_PROTO_SYNC_RETRY_MS;
 
-  if (!refreshInProgress && (needsSourceSync || hasDueChecks) && ctx?.waitUntil) {
+  if (!refreshInProgress && (needsSourceSync || hasDueChecks || needsMtprotoSync) && ctx?.waitUntil) {
     ctx.waitUntil(runLockedProxyRefresh(env, false).catch(error => console.error("Background proxy catalog update failed:", error)));
   }
 
-  const [meta, rows, progress] = await Promise.all([
+  const [meta, rows, progress, mtprotoMeta, mtprotoRows] = await Promise.all([
     env.DB.prepare("SELECT checked_at, target_count FROM proxy_status_meta WHERE id=1").first(),
     env.DB.prepare(
       "SELECT DISTINCT l.proxy_url FROM proxy_catalog_links l " +
@@ -659,13 +665,31 @@ async function getVerifiedProxyCatalog(env, ctx) {
       "SUM(CASE WHEN q.checked_at >= ? AND q.next_check_at > ? THEN 1 ELSE 0 END) AS checked, " +
       "SUM(CASE WHEN q.next_check_at <= ? THEN 1 ELSE 0 END) AS pending " +
       "FROM proxy_probe_queue q"
-    ).bind(cutoff, now, now).first()
+    ).bind(cutoff, now, now).first(),
+    env.DB.prepare(
+      "SELECT checked_at AS checkedAt, attempted_at AS attemptedAt, source_count AS sourceCount, " +
+      "discovered_links AS discoveredLinks, checked_count AS checkedCount, " +
+      "working_count AS workingCount, failed_count AS failedCount, duration_ms AS durationMs " +
+      "FROM proxy_mtproto_meta WHERE id=1"
+    ).first(),
+    env.DB.prepare(
+      "SELECT link_key AS linkKey, status, latency_ms AS latencyMs, checked_at AS checkedAt " +
+      "FROM proxy_mtproto_status WHERE checked_at >= ?"
+    ).bind(cutoff).all()
   ]);
 
+  const mtprotoStatusMap = new Map((mtprotoRows.results || []).map(item => [item.linkKey, item]));
   const uniqueProxies = new Map();
+  let mtprotoVerifiedCount = 0;
   for (const row of (rows.results || [])) {
     const value = typeof row.proxy_url === "string" ? row.proxy_url.trim() : "";
     if (!value) continue;
+    if (isMtprotoProxyUrl(value)) {
+      const linkKey = await hashMtprotoLink(value);
+      const linkStatus = mtprotoStatusMap.get(linkKey);
+      if (linkStatus?.status !== "online") continue;
+      mtprotoVerifiedCount++;
+    }
     const identity = proxyLinkIdentity(value);
     if (!uniqueProxies.has(identity)) uniqueProxies.set(identity, value);
   }
@@ -673,15 +697,31 @@ async function getVerifiedProxyCatalog(env, ctx) {
   const total = Number(progress?.total || 0);
   const checked = Number(progress?.checked || 0);
   const pending = Number(progress?.pending || 0);
+  const mtprotoCheckedAtMs = Date.parse(mtprotoMeta?.checkedAt || "");
+  const mtprotoSnapshotStale = !Number.isFinite(mtprotoCheckedAtMs)
+    || Date.now() - mtprotoCheckedAtMs > MT_PROTO_HEALTH_MAX_AGE_MS;
   const responsePayload = {
     pending: pending > 0 || needsSourceSync,
     count: proxies.length,
     checkedAt: meta?.checked_at || null,
     proxies,
+    mtproto: {
+      checkLevel: "MTProto handshake + HelpGetNearestDC",
+      checkedAt: mtprotoMeta?.checkedAt || null,
+      pending: mtprotoSnapshotStale,
+      discoveredLinks: Number(mtprotoMeta?.discoveredLinks || 0),
+      checkedCount: Number(mtprotoMeta?.checkedCount || 0),
+      workingCount: Number(mtprotoMeta?.workingCount || 0),
+      failedCount: Number(mtprotoMeta?.failedCount || 0),
+      visibleVerifiedCount: mtprotoVerifiedCount,
+      durationMs: Number(mtprotoMeta?.durationMs || 0)
+    },
     progress: {
       totalEndpoints: total,
       checkedRecently: checked,
       pendingChecks: pending,
+      mtprotoChecked: Number(mtprotoMeta?.checkedCount || 0),
+      mtprotoWorking: Number(mtprotoMeta?.workingCount || 0),
       percent: total ? Math.min(100, Math.round(checked / total * 100)) : 0
     }
   };
@@ -699,34 +739,41 @@ async function getVerifiedProxyCatalog(env, ctx) {
 async function getCachedProxyStatuses(env) {
   if (!env.DB) return json({ error: "Database binding DB is not configured." }, 503);
   const cutoff = new Date(Date.now() - PROXY_CACHE_MAX_AGE_MS).toISOString();
-  const [meta, rows] = await Promise.all([
+  const [meta, rows, linkRows] = await Promise.all([
     env.DB.prepare("SELECT checked_at, target_count FROM proxy_status_meta WHERE id = 1").first(),
     env.DB.prepare(
       "SELECT server, port, status, latency_ms AS latencyMs FROM proxy_status_cache " +
       "WHERE checked_at >= ? ORDER BY server, port"
+    ).bind(cutoff).all(),
+    env.DB.prepare(
+      "SELECT link_key AS linkKey, status, latency_ms AS latencyMs, checked_at AS checkedAt " +
+      "FROM proxy_mtproto_status WHERE checked_at >= ? ORDER BY checked_at DESC"
     ).bind(cutoff).all()
   ]);
   return json({
     results: rows.results || [],
+    linkResults: linkRows.results || [],
     checkedAt: meta?.checked_at || null,
     targetCount: meta?.target_count || 0,
-    ready: Boolean(rows.results?.length)
+    ready: Boolean(rows.results?.length || linkRows.results?.length)
   });
 }
 
 async function getHealth(env) {
   if (!env.DB) return json({ ok: false, error: "D1 binding DB is not configured." }, 503);
 
-  const [sourceTable, catalogTable] = await Promise.all([
+  const [sourceTable, catalogTable, mtprotoStatusTable, mtprotoMetaTable] = await Promise.all([
     env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='proxy_source_health' LIMIT 1").first(),
-    env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='proxy_catalog_links' LIMIT 1").first()
+    env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='proxy_catalog_links' LIMIT 1").first(),
+    env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='proxy_mtproto_status' LIMIT 1").first(),
+    env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='proxy_mtproto_meta' LIMIT 1").first()
   ]);
-  if (!sourceTable || !catalogTable) {
+  if (!sourceTable || !catalogTable || !mtprotoStatusTable || !mtprotoMetaTable) {
     return json({
       ok: false,
       code: "MIGRATION_REQUIRED",
       message: "Не применены миграции каталога прокси.",
-      migrations: ["0004_proxy_source_health.sql", "0005_full_proxy_catalog.sql"],
+      migrations: ["0004_proxy_source_health.sql", "0005_full_proxy_catalog.sql", "0006_mtproto_deep_health.sql"],
       configuredSources: PROXY_SOURCES.length
     }, 503);
   }
@@ -768,6 +815,19 @@ async function getHealth(env) {
     env.DB.prepare("SELECT COUNT(*) AS count FROM proxy_catalog_links").first()
   ]);
 
+  const [mtprotoMeta, mtprotoStatusRows] = await Promise.all([
+    env.DB.prepare(
+      "SELECT checked_at AS checkedAt, attempted_at AS attemptedAt, source_count AS sourceCount, " +
+      "discovered_links AS discoveredLinks, checked_count AS checkedCount, working_count AS workingCount, " +
+      "failed_count AS failedCount, duration_ms AS durationMs, checker FROM proxy_mtproto_meta WHERE id=1"
+    ).first(),
+    env.DB.prepare(
+      "SELECT status, COUNT(*) AS count FROM proxy_mtproto_status WHERE checked_at >= ? GROUP BY status"
+    ).bind(cutoff).all()
+  ]);
+  const mtprotoCounts = Object.fromEntries((mtprotoStatusRows.results || []).map(row => [row.status, Number(row.count || 0)]));
+  const mtprotoOnline = mtprotoCounts.online || 0;
+  const mtprotoOffline = mtprotoCounts.offline || 0;
   const counts = Object.fromEntries((statusRows.results || []).map(row => [row.status, Number(row.count || 0)]));
   const online = counts.online || 0;
   const offline = counts.offline || 0;
@@ -824,7 +884,16 @@ async function getHealth(env) {
       online,
       offline,
       feedOnline,
-      onlinePercent: uniqueChecked ? Math.round(online / uniqueChecked * 100) : 0
+      onlinePercent: uniqueChecked ? Math.round(online / uniqueChecked * 100) : 0,
+      mtprotoCheckLevel: "MTProto handshake + HelpGetNearestDC",
+      mtprotoCheckedAt: mtprotoMeta?.checkedAt || null,
+      mtprotoLastAttemptAt: mtprotoMeta?.attemptedAt || null,
+      mtprotoDiscoveredLinks: Number(mtprotoMeta?.discoveredLinks || 0),
+      mtprotoChecked: mtprotoOnline + mtprotoOffline,
+      mtprotoOnline,
+      mtprotoOffline,
+      mtprotoPingSamples: mtprotoOnline,
+      mtprotoChecker: mtprotoMeta?.checker || null
     },
     sources: sourceRows
   });
@@ -1049,9 +1118,15 @@ export default {
     const due = await env.DB.prepare(
       "SELECT COUNT(*) AS count FROM proxy_probe_queue WHERE next_check_at <= ?"
     ).bind(now).first();
+    const mtprotoMeta = await env.DB.prepare(
+      "SELECT attempted_at FROM proxy_mtproto_meta WHERE id=1"
+    ).first();
+    const mtprotoAttemptAt = Date.parse(mtprotoMeta?.attempted_at || "");
+    const mtprotoSyncDue = !Number.isFinite(mtprotoAttemptAt)
+      || Date.now() - mtprotoAttemptAt >= MT_PROTO_SYNC_RETRY_MS;
     const sourceSyncDue = !Number.isFinite(lastSourceSync) || Date.now() - lastSourceSync >= PROXY_REFRESH_INTERVAL_MS;
     const checksDue = Number(due?.count || 0) > 0;
-    if (!sourceSyncDue && !checksDue) return;
+    if (!sourceSyncDue && !checksDue && !mtprotoSyncDue) return;
 
     const result = await runLockedProxyRefresh(env, false);
     if (result.changed) {
