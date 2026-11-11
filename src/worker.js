@@ -466,6 +466,36 @@ async function getVerifiedProxyFeed(env, ctx) {
   });
 }
 
+function proxyLinkIdentity(value) {
+  try {
+    const parsed = new URL(value);
+    let kind = "";
+    if (parsed.protocol === "tg:" && ["proxy", "socks"].includes(parsed.hostname.toLowerCase())) {
+      kind = parsed.hostname.toLowerCase();
+    } else if ((parsed.protocol === "https:" || parsed.protocol === "http:")
+      && parsed.hostname.toLowerCase() === "t.me"
+      && ["/proxy", "/socks", "/webproxy"].includes(parsed.pathname.toLowerCase())) {
+      kind = parsed.pathname.slice(1).toLowerCase();
+    } else if (parsed.protocol === "socks5:") {
+      kind = "socks";
+    }
+    const server = (parsed.searchParams.get("server") || (parsed.protocol === "socks5:" ? parsed.hostname : "")).toLowerCase();
+    const port = parsed.searchParams.get("port") || parsed.port || (kind === "webproxy" ? "443" : "");
+    const secret = parsed.searchParams.get("secret") || "";
+    if (!kind || !server || !port) return value;
+    // Normalize tg://proxy and https://t.me/proxy to the same identity,
+    // while keeping different secrets on the same server:port separate.
+    if (kind === "proxy" || kind === "webproxy") return [kind, server, port, secret].join("|");
+    const extras = Array.from(parsed.searchParams.entries())
+      .filter(([key]) => !["server", "port"].includes(key.toLowerCase()))
+      .sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]))
+      .map(([key, value]) => key + "=" + value).join("&");
+    return [kind, server, port, parsed.username, parsed.password, extras].join("|");
+  } catch (_) {
+    return value;
+  }
+}
+
 async function getVerifiedProxyCatalog(env, ctx) {
   if (!env.DB) return json({ error: "Database binding DB is not configured." }, 503);
 
@@ -494,7 +524,7 @@ async function getVerifiedProxyCatalog(env, ctx) {
       "SELECT DISTINCT l.proxy_url FROM proxy_catalog_links l " +
       "JOIN proxy_status_cache c ON c.server=l.server AND c.port=l.port " +
       "WHERE c.status='online' AND c.checked_at >= ? AND l.last_seen_at >= ? " +
-      "ORDER BY l.proxy_url"
+      "ORDER BY l.source, l.proxy_url"
     ).bind(cutoff, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()).all(),
     env.DB.prepare(
       "SELECT COUNT(*) AS total, " +
@@ -504,7 +534,14 @@ async function getVerifiedProxyCatalog(env, ctx) {
     ).bind(cutoff, now, now).first()
   ]);
 
-  const proxies = (rows.results || []).map(row => row.proxy_url).filter(value => typeof value === "string" && value.trim());
+  const uniqueProxies = new Map();
+  for (const row of (rows.results || [])) {
+    const value = typeof row.proxy_url === "string" ? row.proxy_url.trim() : "";
+    if (!value) continue;
+    const identity = proxyLinkIdentity(value);
+    if (!uniqueProxies.has(identity)) uniqueProxies.set(identity, value);
+  }
+  const proxies = Array.from(uniqueProxies.values());
   const total = Number(progress?.total || 0);
   const checked = Number(progress?.checked || 0);
   const pending = Number(progress?.pending || 0);
