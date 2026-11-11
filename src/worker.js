@@ -354,12 +354,28 @@ async function runLockedProxyRefresh(env) {
 }
 
 async function getVerifiedProxyFeed(env, ctx) {
-  if (!env.DB) return new Response("", { status: 503, headers: { "Cache-Control": "no-store" } });
+  const pendingMessage = "Каталог прокси обновляется. Страница сайта проверит результат автоматически.\\n";
+  if (!env.DB) return new Response("База каталога пока недоступна.\\n", { status: 503, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
+
+  const lock = await env.DB.prepare("SELECT started_at FROM proxy_refresh_lock WHERE id=1").first();
+  const lockStartedAt = lock?.started_at ? Date.parse(lock.started_at) : NaN;
+  const refreshInProgress = Number.isFinite(lockStartedAt) && Date.now() - lockStartedAt < 10 * 60 * 1000;
   const meta = await env.DB.prepare("SELECT checked_at FROM proxy_status_meta WHERE id=1").first();
   const checkedAt = meta?.checked_at ? Date.parse(meta.checked_at) : NaN;
+
+  if (refreshInProgress) {
+    return new Response(pendingMessage, {
+      status: 503,
+      headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "X-Proxy-Refresh": "pending" }
+    });
+  }
+
   if (!Number.isFinite(checkedAt) || Date.now() - checkedAt > PROXY_CACHE_MAX_AGE_MS) {
     if (ctx?.waitUntil) ctx.waitUntil(runLockedProxyRefresh(env).catch(error => console.error("Proxy refresh failed:", error)));
-    return new Response("", { status: 503, headers: { "Cache-Control": "no-store", "X-Proxy-Refresh": "pending" } });
+    return new Response(pendingMessage, {
+      status: 503,
+      headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "X-Proxy-Refresh": "pending" }
+    });
   }
   const rows = await env.DB.prepare(
     "SELECT l.proxy_url FROM proxy_links l JOIN proxy_status_cache c ON c.server=l.server AND c.port=l.port " +
@@ -431,13 +447,22 @@ async function handleProxyStatus(request, env, url) {
   return json({ results: checked.concat(unverified) });
 }
 
-async function handleApi(request, env, url) {
+async function handleApi(request, env, url, ctx) {
   const path = url.pathname;
   const method = request.method;
   if (path === "/api/proxy-status" && method === "GET") {
     return getCachedProxyStatuses(env);
   }
   if (!env.DB) return json({ error: "Database binding DB is not configured." }, 503);
+
+  if (path === "/api/proxy-refresh" && method === "POST") {
+    if (!sameOrigin(request, url)) return json({ error: "Origin check failed." }, 403);
+    if (!ctx?.waitUntil) return json({ error: "Background refresh is unavailable." }, 503);
+    ctx.waitUntil(runLockedProxyRefresh(env).then(result => {
+      if (result.changed) console.log("Manual proxy refresh completed:", result.onlineCount + "/" + result.targetCount + " online");
+    }).catch(error => console.error("Manual proxy refresh failed:", error)));
+    return json({ accepted: true, message: "Обновление каталога запущено." }, 202);
+  }
 
   if (path === "/api/season" && method === "GET") {
     const row = await env.DB.prepare(
@@ -530,7 +555,7 @@ export default {
         if (request.method !== "GET" && request.method !== "POST") {
           response = json({ error: "Method not allowed." }, 405, { "Allow": "GET, POST" });
         } else {
-          response = await handleApi(request, env, url);
+          response = await handleApi(request, env, url, ctx);
         }
       } else if (request.method === "GET" && url.pathname === "/proxies.txt") {
         response = await getVerifiedProxyFeed(env, ctx);
