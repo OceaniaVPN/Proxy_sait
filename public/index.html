@@ -895,7 +895,7 @@
 
           const payload = await response.json();
           if (!Array.isArray(payload?.proxies)) throw new Error('INVALID_FEED_FORMAT');
-          proxies = extractProxyLinks(payload.proxies.join('\\n'));
+          proxies = extractProxyLinks(payload.proxies.join('\n'));
           if (Number(payload.count || 0) > 0 && proxies.length === 0) throw new Error('FEED_PARSE_EMPTY');
           render();
 
