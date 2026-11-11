@@ -736,12 +736,10 @@ async function getVerifiedProxyCatalog(env, ctx) {
     }
   };
 
+  // Return the partial catalog immediately, even when no endpoint has passed TCP yet.
+  // The UI can show queue progress while cron/background requests continue checking batches.
   if (!proxies.length && (pending > 0 || needsSourceSync || refreshInProgress)) {
-    return json(
-      { ...responsePayload, message: "Собираем источники и проверяем первую партию прокси." },
-      503,
-      { "X-Proxy-Refresh": "pending", "Retry-After": "4" }
-    );
+    responsePayload.message = "Собираем источники и проверяем очередь адресов.";
   }
   return json(responsePayload);
 }
