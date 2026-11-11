@@ -733,11 +733,11 @@
         const inner = document.createElement('div');
         const icon = makeIcon('<div class="state-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></svg></div>');
         const title = document.createElement('h3');
-        title.textContent = proxies.length ? 'Ничего не найдено' : 'В каталоге пока пусто';
+        title.textContent = proxies.length ? 'Ничего не найдено' : 'Сейчас нет подтверждённых серверов';
         const copy = document.createElement('p');
         copy.textContent = proxies.length
           ? 'Измени запрос или выбери другую категорию.'
-          : 'Добавь Telegram-ссылки в список серверов проекта — по одной на строку.';
+          : 'Каталог обновляется автоматически. Серверы появятся здесь после проверки доступности.';
         inner.append(icon, title, copy);
         state.append(inner);
         list.append(state);
@@ -831,45 +831,109 @@
       render();
     }
 
-    async function loadFeed() {
+    function showCatalogPending(message) {
+      const list = $('#proxy-list');
+      list.replaceChildren();
+      const state = document.createElement('div');
+      state.className = 'state';
+      state.style.gridColumn = '1 / -1';
+      const inner = document.createElement('div');
+      const spinner = document.createElement('div');
+      spinner.className = 'spinner';
+      spinner.style.margin = '0 auto 14px';
+      const title = document.createElement('h3');
+      title.textContent = 'Обновляем каталог прокси';
+      const copy = document.createElement('p');
+      copy.textContent = message;
+      inner.append(spinner, title, copy);
+      state.append(inner);
+      list.append(state);
+      $('#results-label').textContent = 'Идёт загрузка и проверка серверов…';
+    }
+
+    async function loadFeed(forceRefresh = false) {
       const button = $('#refresh');
+      if (button.disabled) return;
       button.disabled = true;
       button.style.opacity = '.65';
       const previous = button.innerHTML;
       button.innerHTML = '<span class="spinner" style="width:13px;height:13px;border-width:1.5px"></span> Загрузка';
-      $('#results-label').textContent = 'Обновляем список серверов…';
+      showCatalogPending(forceRefresh
+        ? 'Получаем свежие списки и проверяем доступность серверов.'
+        : 'Получаем актуальный список. При первом запуске каталог может формироваться дольше обычного.');
+
       try {
-        const response = await fetch(`${FEED_URL}?_=${Date.now()}`, {
-          method: 'GET', cache: 'no-store', headers: { 'Accept': 'text/plain' }
-        });
-        if (!response.ok) throw new Error(response.status === 404 ? 'NOT_FOUND' : `HTTP_${response.status}`);
-        const text = await response.text();
-        proxies = extractProxyLinks(text);
-        render();
-        if (!proxies.length) {
-          $('#results-label').textContent = 'Список загружен · подходящих ссылок нет';
-          showToast('Файл загружен, но ссылок не найдено');
-        } else {
-          $('#results-label').textContent = `Загружено серверов · ${proxies.length} · TCP-проверка запущена`;
-          showToast(`Каталог обновлён · ${proxies.length} серверов`);
-          void checkProxyStatuses(proxies.slice());
+        if (forceRefresh) {
+          const refreshResponse = await fetch('/api/proxy-refresh', {
+            method: 'POST',
+            cache: 'no-store',
+            credentials: 'same-origin',
+            headers: { 'Accept': 'application/json' }
+          });
+          if (!refreshResponse.ok) {
+            let detail = '';
+            try { detail = (await refreshResponse.json()).error || ''; } catch (_) {}
+            throw new Error(detail || `REFRESH_HTTP_${refreshResponse.status}`);
+          }
         }
+
+        for (let attempt = 0; attempt < 36; attempt++) {
+          const response = await fetch(`${FEED_URL}?_=${Date.now()}`, {
+            method: 'GET', cache: 'no-store', headers: { 'Accept': 'text/plain' }
+          });
+
+          if (response.status === 503 && response.headers.get('X-Proxy-Refresh') === 'pending') {
+            showCatalogPending(attempt < 2
+              ? 'Собираем источники и проверяем серверы. Каталог обновится автоматически.'
+              : `Проверка ещё выполняется… ${attempt + 1}/36`);
+            await new Promise(resolve => setTimeout(resolve, 4000));
+            continue;
+          }
+          if (!response.ok) {
+            throw new Error(response.status === 404 ? 'NOT_FOUND' : `HTTP_${response.status}`);
+          }
+
+          const text = await response.text();
+          proxies = extractProxyLinks(text);
+          render();
+
+          if (!proxies.length) {
+            $('#results-label').textContent = 'Проверка завершена · сейчас нет доступных серверов';
+            showToast('Проверка завершена · рабочих серверов пока нет');
+          } else {
+            $('#results-label').textContent = `Найдено рабочих серверов · ${proxies.length}`;
+            showToast(`Каталог обновлён · ${proxies.length} серверов`);
+            void checkProxyStatuses(proxies.slice());
+          }
+          return;
+        }
+        throw new Error('REFRESH_TIMEOUT');
       } catch (error) {
-        console.error('Не удалось загрузить proxies.txt:', error);
+        console.error('Не удалось обновить каталог прокси:', error);
         const list = $('#proxy-list');
         list.replaceChildren();
         const state = document.createElement('div');
-        state.className = 'state error'; state.style.gridColumn = '1 / -1';
+        state.className = 'state error';
+        state.style.gridColumn = '1 / -1';
         const inner = document.createElement('div');
         inner.append(makeIcon('<div class="state-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3l-8.5-14.1a2 2 0 0 0-3.4 0Z"/></svg></div>'));
-        const title = document.createElement('h3'); title.textContent = 'Не удалось загрузить список серверов';
+        const title = document.createElement('h3');
+        title.textContent = error.message === 'REFRESH_TIMEOUT'
+          ? 'Проверка ещё не завершилась'
+          : 'Не удалось обновить каталог';
         const message = document.createElement('p');
         message.textContent = error.message === 'NOT_FOUND'
           ? 'Список серверов пока недоступен. Попробуй обновить каталог позже.'
-          : 'Проверь интернет-соединение и попробуй обновить каталог ещё раз.';
-        inner.append(title, message); state.append(inner); list.append(state);
-        $('#stat-total').textContent = '—';
-        $('#results-label').textContent = 'Не удалось обновить каталог';
+          : error.message === 'REFRESH_TIMEOUT'
+            ? 'Источники или серверы отвечают медленно. Нажми «Обновить», чтобы проверить ещё раз.'
+            : error.message.startsWith('REFRESH_HTTP_')
+              ? 'Не удалось запустить обновление. Проверь настройки Worker и D1.'
+              : 'Проверь соединение и попробуй обновить каталог ещё раз.';
+        inner.append(title, message);
+        state.append(inner);
+        list.append(state);
+        $('#results-label').textContent = 'Каталог пока не обновлён';
+        $('#stat-total').textContent = '0';
       } finally {
         button.disabled = false;
         button.style.opacity = '1';
@@ -898,7 +962,7 @@
       });
       render();
     });
-    $('#refresh').addEventListener('click', loadFeed);
+    $('#refresh').addEventListener('click', () => loadFeed(true));
     loadFeed();
   </script>
 <section class="admin-modal" id="admin-modal" hidden aria-hidden="true">
