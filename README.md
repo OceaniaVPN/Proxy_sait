@@ -9,7 +9,7 @@ Worker независимо собирает и объединяет следу�
 - Собственный файл репозитория: `public/proxies.txt`
 - Дополнительный файл репозитория: `data/proxies.txt`
 - iwizard7/MTProxy_list: `working.txt` и `stable.txt`
-- 0xRadikal/Free-Telegram-Proxy: `fast/tg.txt` и `stable/tg.txt`
+- 0xRadikal/Free-Telegram-Proxy: `fast/tg.txt`, `stable/tg.txt`, `resilient/tg.txt`, `resilient/tme.txt` и `top100.txt`
 - SoliSpirit/mtproto: `all_proxies.txt`
 
 Поддерживаются ссылки MTProto, Telegram SOCKS и SOCKS5, а также Telegram WEB proxy. Дубликаты убираются по серверу и порту. При выборе кандидатов источники чередуются, поэтому большой собственный файл не вытесняет остальные. Каждые 5 часов позиция выборки сдвигается на 8 записей в каждом источнике: каталог постепенно доходит и до следующих строк длинных списков. За одно обновление проверяется ограниченная партия до 48 адресов, чтобы ручное фоновое обновление не зависало на слишком длинной проверке.
