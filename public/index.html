@@ -746,7 +746,7 @@
       $('#results-label').innerHTML = '<strong>' + filtered.length + '</strong> из <strong>' + proxies.length
         + '</strong> серверов · MTProto + Telegram: <strong>' + mtprotoOnline + '</strong> · только TCP: <strong>' + tcpOnline
         + '</strong> · без TCP-ответа: <strong>' + tcpOffline + '</strong> · проверяются: <strong>' + tcpChecking
-        + '</strong>' + (tcpUnknown ? ' · без проверки: <strong>' + tcpUnknown + '</strong>' : '');
+        + '</strong>' + (tcpUnknown ? ' · ожидают TCP-проверки: <strong>' + tcpUnknown + '</strong>' : '');
 
       const list = $('#proxy-list');
       list.replaceChildren();
@@ -899,9 +899,13 @@
       const p = payload && payload.progress;
       if (!p || !Number.isFinite(Number(p.totalEndpoints))) return '';
       const mtproto = payload.mtproto;
-      const deepText = mtproto
-        ? ' · MTProto: ' + Number(mtproto.workingCount || 0) + '/' + Number(mtproto.checkedCount || 0) + ' подтверждены Telegram'
-        : '';
+      const deepText = mtproto?.status === 'skipped'
+        ? ' · глубокая проверка пропущена: ' + (mtproto.skipReason === 'no_valid_mtproto_links'
+          ? 'нет подходящих ссылок с секретом' : mtproto.skipReason === 'checker_unavailable'
+            ? 'чекер недоступен' : 'нет данных')
+        : mtproto
+          ? ' · MTProto: ' + Number(mtproto.workingCount || 0) + '/' + Number(mtproto.checkedCount || 0) + ' подтверждены Telegram'
+          : '';
       const deepPending = mtproto?.pending ? ' · глубокая проверка обновляется' : '';
       return ' · TCP: ' + Number(p.checkedRecently || 0) + '/' + Number(p.totalEndpoints || 0)
         + ', в очереди ' + Number(p.pendingChecks || 0) + deepText + deepPending;
