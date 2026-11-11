@@ -239,21 +239,32 @@ async function refreshProxyStatusCache(env) {
   if (!env.DB) throw new Error("D1 binding DB is not configured");
   const previous = await env.DB.prepare("SELECT server, port, proxy_url, source FROM proxy_links").all();
 
-  const loaded = (await Promise.all(PROXY_SOURCES.map(async source => {
+  const sourceResults = await Promise.all(PROXY_SOURCES.map(async source => {
     try {
       const feed = await fetchProxySource(source);
       const links = extractTelegramProxyLinks(feed, source.name);
-      if (!links.size) throw new Error("No valid proxy links");
-      return { source, feed, links };
+      if (!links.size) throw new Error("No valid Telegram proxy links found");
+      return { source, feed, links, error: null };
     } catch (error) {
-      console.warn("Proxy source failed:", source.name, error?.message || String(error));
-      return null;
+      const message = error?.message || String(error);
+      console.warn("Proxy source failed:", source.name, message);
+      return { source, feed: "", links: new Map(), error: message };
     }
-  }))).filter(Boolean);
-
-  if (!loaded.length) throw new Error("All proxy sources failed; existing catalog kept");
+  }));
+  const loaded = sourceResults.filter(item => item.links.size > 0);
+  const failed = sourceResults.filter(item => item.links.size === 0);
   const loadedNames = new Set(loaded.map(item => item.source.name));
-  const failedNames = new Set(PROXY_SOURCES.filter(item => !loadedNames.has(item.name)).map(item => item.name));
+  const failedNames = new Set(failed.map(item => item.source.name));
+
+  if (!loaded.length) {
+    const checkedAt = new Date().toISOString();
+    await env.DB.batch(sourceResults.map(item => env.DB.prepare(
+      "INSERT INTO proxy_source_health (source, url, status, http_status, bytes, parsed_count, checked_count, online_count, offline_count, checked_at, error) " +
+      "VALUES (?, ?, 'error', NULL, 0, 0, 0, 0, 0, ?, ?) ON CONFLICT(source) DO UPDATE SET " +
+      "url=excluded.url, status='error', bytes=0, parsed_count=0, checked_count=0, online_count=0, offline_count=0, checked_at=excluded.checked_at, error=excluded.error"
+    ).bind(item.source.name, item.source.url, checkedAt, item.error || "Unknown source error")));
+    throw new Error("All proxy sources failed; existing catalog kept");
+  }
 
   // Build one pool per source and interleave them. This prevents a large repository
   // file from consuming the entire probe budget before other sources are considered.
@@ -313,6 +324,25 @@ async function refreshProxyStatusCache(env) {
     "DELETE FROM proxy_links WHERE NOT EXISTS (SELECT 1 FROM proxy_status_cache c WHERE c.server=proxy_links.server AND c.port=proxy_links.port AND c.checked_at=?)"
   ).bind(checkedAt).run();
   await env.DB.prepare("DELETE FROM proxy_status_cache WHERE checked_at <> ?").bind(checkedAt).run();
+
+  const sourceHealthWrites = sourceResults.map(item => {
+    const sourceLinks = item.links ? Array.from(item.links.values()) : [];
+    const checkedIndexes = [];
+    for (let i = 0; i < selected.length; i++) {
+      if (selected[i].source === item.source.name) checkedIndexes.push(i);
+    }
+    const sourceOnline = checkedIndexes.filter(i => checked[i]?.status === "online").length;
+    const sourceOffline = checkedIndexes.length - sourceOnline;
+    const status = item.links.size ? "ok" : "error";
+    return env.DB.prepare(
+      "INSERT INTO proxy_source_health (source, url, status, http_status, bytes, parsed_count, checked_count, online_count, offline_count, checked_at, error) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(source) DO UPDATE SET " +
+      "url=excluded.url, status=excluded.status, http_status=excluded.http_status, bytes=excluded.bytes, parsed_count=excluded.parsed_count, " +
+      "checked_count=excluded.checked_count, online_count=excluded.online_count, offline_count=excluded.offline_count, checked_at=excluded.checked_at, error=excluded.error"
+    ).bind(item.source.name, item.source.url, status, item.error ? null : 200, item.feed.length, sourceLinks.length,
+      checkedIndexes.length, sourceOnline, sourceOffline, checkedAt, item.error);
+  });
+  await env.DB.batch(sourceHealthWrites);
 
   const fingerprint = loaded.map(item => item.source.url + "\n" + item.feed).join("\n---\n");
   const feedHash = await hashProxyFeed(fingerprint);
@@ -397,6 +427,36 @@ async function getCachedProxyStatuses(env) {
   });
 }
 
+async function getHealth(env) {
+  if (!env.DB) return json({ ok: false, error: "D1 binding DB is not configured." }, 503);
+  const [meta, rows, sources, lock] = await Promise.all([
+    env.DB.prepare("SELECT checked_at, target_count FROM proxy_status_meta WHERE id=1").first(),
+    env.DB.prepare("SELECT status, COUNT(*) AS count FROM proxy_status_cache GROUP BY status").all(),
+    env.DB.prepare("SELECT source, url, status, http_status AS httpStatus, bytes, parsed_count AS parsedCount, checked_count AS checkedCount, online_count AS onlineCount, offline_count AS offlineCount, checked_at AS checkedAt, error FROM proxy_source_health ORDER BY source").all(),
+    env.DB.prepare("SELECT started_at FROM proxy_refresh_lock WHERE id=1").first()
+  ]);
+  const counts = Object.fromEntries((rows.results || []).map(row => [row.status, Number(row.count || 0)]));
+  const sourceRows = sources.results || [];
+  const online = counts.online || 0;
+  const offline = counts.offline || 0;
+  return json({
+    ok: true,
+    service: "Proxy Sait",
+    checkedAt: meta?.checked_at || null,
+    refreshing: Boolean(lock?.started_at && Date.now() - Date.parse(lock.started_at) < 10 * 60 * 1000),
+    summary: {
+      configuredSources: PROXY_SOURCES.length,
+      sourcesOk: sourceRows.filter(item => item.status === "ok").length,
+      sourcesFailed: sourceRows.filter(item => item.status !== "ok").length,
+      uniqueChecked: Number(meta?.target_count || 0),
+      online,
+      offline,
+      onlinePercent: meta?.target_count ? Math.round(online / Number(meta.target_count) * 100) : 0
+    },
+    sources: sourceRows
+  });
+}
+
 async function handleProxyStatus(request, env, url) {
   if (!sameOrigin(request, url)) return json({ error: "Origin check failed." }, 403);
   if (!env.ASSETS) return json({ error: "Assets binding is not configured." }, 503);
@@ -444,6 +504,9 @@ async function handleApi(request, env, url, ctx) {
   const method = request.method;
   if (path === "/api/proxy-status" && method === "GET") {
     return getCachedProxyStatuses(env);
+  }
+  if (path === "/health" && method === "GET") {
+    return getHealth(env);
   }
   if (!env.DB) return json({ error: "Database binding DB is not configured." }, 503);
 
