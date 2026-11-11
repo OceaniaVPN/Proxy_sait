@@ -851,6 +851,41 @@
       $('#results-label').textContent = 'Идёт загрузка и проверка серверов…';
     }
 
+    let silentCatalogRefreshRunning = false;
+
+    function catalogProgressText(payload) {
+      const p = payload && payload.progress;
+      if (!p || !Number.isFinite(Number(p.totalEndpoints))) return '';
+      return ' · проверено ' + Number(p.checkedRecently || 0) + '/' + Number(p.totalEndpoints || 0)
+        + ', в очереди ' + Number(p.pendingChecks || 0);
+    }
+
+    async function refreshCatalogSilently() {
+      if (silentCatalogRefreshRunning || $('#refresh').disabled) return;
+      silentCatalogRefreshRunning = true;
+      try {
+        const response = await fetch(FEED_URL + '?_=' + Date.now(), {
+          method: 'GET',
+          cache: 'no-store',
+          credentials: 'same-origin',
+          headers: { 'Accept': 'application/json' }
+        });
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (!Array.isArray(payload?.proxies)) return;
+        proxies = extractProxyLinks(payload.proxies.join('\n'));
+        render();
+        const progress = catalogProgressText(payload);
+        $('#results-label').textContent = proxies.length
+          ? 'Рабочих серверов: ' + proxies.length + progress
+          : 'Проверка каталога' + progress;
+      } catch (error) {
+        console.warn('Фоновое обновление списка прокси не удалось:', error);
+      } finally {
+        silentCatalogRefreshRunning = false;
+      }
+    }
+
     async function loadFeed(forceRefresh = false) {
       const button = $('#refresh');
       if (button.disabled) return;
@@ -903,7 +938,7 @@
             $('#results-label').textContent = 'Проверка завершена · сейчас нет доступных серверов';
             showToast('Проверка завершена · рабочих серверов пока нет');
           } else {
-            $('#results-label').textContent = `Найдено рабочих серверов · ${proxies.length}`;
+            $('#results-label').textContent = `Найдено рабочих серверов · ${proxies.length}${catalogProgressText(payload)}`;
             showToast(`Каталог обновлён · ${proxies.length} серверов`);
           }
           return;
@@ -968,6 +1003,9 @@
     });
     $('#refresh').addEventListener('click', () => loadFeed(true));
     loadFeed();
+    // The Worker checks the complete discovered list in 48-endpoint batches.
+    // Refresh the visible catalog as later batches finish.
+    setInterval(refreshCatalogSilently, 60000);
   </script>
 <section class="admin-modal" id="admin-modal" hidden aria-hidden="true">
     <div class="admin-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-title">
