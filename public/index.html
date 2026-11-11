@@ -585,7 +585,7 @@
             let kind = '';
             if (url.protocol === 'tg:' && ['proxy', 'socks'].includes(url.hostname.toLowerCase())) {
               kind = url.hostname.toLowerCase();
-            } else if (url.protocol === 'https:' && url.hostname.toLowerCase() === 't.me'
+            } else if (['https:', 'http:'].includes(url.protocol) && url.hostname.toLowerCase() === 't.me'
               && ['/proxy', '/socks', '/webproxy'].includes(url.pathname.toLowerCase())) {
               kind = url.pathname.slice(1).toLowerCase();
             } else if (url.protocol === 'socks5:') {
