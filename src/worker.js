@@ -505,9 +505,6 @@ async function handleApi(request, env, url, ctx) {
   if (path === "/api/proxy-status" && method === "GET") {
     return getCachedProxyStatuses(env);
   }
-  if (path === "/health" && method === "GET") {
-    return getHealth(env);
-  }
   if (!env.DB) return json({ error: "Database binding DB is not configured." }, 503);
 
   if (path === "/api/proxy-refresh" && method === "POST") {
@@ -622,7 +619,9 @@ export default {
 
     let response;
     try {
-      if (url.pathname.startsWith("/api/")) {
+      if (url.pathname === "/health" && request.method === "GET") {
+        response = await getHealth(env);
+      } else if (url.pathname.startsWith("/api/")) {
         if (request.method !== "GET" && request.method !== "POST") {
           response = json({ error: "Method not allowed." }, 405, { "Allow": "GET, POST" });
         } else {
