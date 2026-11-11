@@ -1,0 +1,62 @@
+name: MTProto deep health check
+
+on:
+  schedule:
+    - cron: "17 */5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mtproto-deep-health
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout Proxy Sait
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build real MTProto checker
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/imbecility/mtproxy-checker.git /tmp/mtproxy-checker
+          cd /tmp/mtproxy-checker
+          go build -trimpath -ldflags="-s -w" -o "$GITHUB_WORKSPACE/mtproxy-checker" ./cmd
+          chmod +x "$GITHUB_WORKSPACE/mtproxy-checker"
+
+      - name: Check discovered MTProto links
+        run: |
+          python .github/scripts/check_mtproto.py \
+            --checker "$GITHUB_WORKSPACE/mtproxy-checker" \
+            --output "$RUNNER_TEMP/mtproto-status.json"
+
+      - name: Publish snapshot to the isolated proxy-health branch
+        shell: bash
+        env:
+          GH_TOKEN: \${{ github.token }}
+        run: |
+          cp "$RUNNER_TEMP/mtproto-status.json" /tmp/mtproto-status.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan proxy-health
+          git rm -rf . >/dev/null 2>&1 || true
+          cp /tmp/mtproto-status.json ./mtproto-status.json
+          git add mtproto-status.json
+          git commit -m "Update MTProto health snapshot [skip ci]"
+          git push origin HEAD:refs/heads/proxy-health --force
