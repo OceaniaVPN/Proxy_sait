@@ -986,7 +986,14 @@
           await checkProxyStatuses(proxies);
 
           if (!proxies.length) {
-            if (payload.mtproto?.pending) {
+            const tcpPending = Number(payload.progress?.pendingChecks || 0);
+            if (tcpPending > 0 || payload.pending) {
+              $('#results-label').textContent = (tcpPending > 0
+                ? 'Пока нет подтверждённых серверов · в очереди TCP-проверки ' + tcpPending
+                : 'Собираем и разбираем источники')
+                + catalogProgressText(payload);
+              showToast('Проверка каталога продолжается в фоне');
+            } else if (payload.mtproto?.pending) {
               $('#results-label').textContent = 'Ожидаем результаты глубокой проверки MTProto' + catalogProgressText(payload);
               showToast('Глубокая проверка MTProto ещё выполняется');
             } else {
