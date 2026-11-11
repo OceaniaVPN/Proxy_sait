@@ -740,8 +740,8 @@ async function handleApi(request, env, url, ctx) {
       return json({ accepted: true, alreadyRunning: true, message: "Обновление уже выполняется." }, 202);
     }
 
-    const task = refreshProxyStatusCache(env).then(result => {
-      console.log("Manual proxy refresh completed:", result.onlineCount + "/" + result.targetCount + " online");
+    const task = refreshProxyCatalog(env, true).then(result => {
+      console.log("Manual proxy catalog update completed:", result.onlineCount + " online from " + result.checkedCount + " checked; " + result.targetCount + " total endpoints; sources=" + result.sourceCount);
     }).catch(error => {
       console.error("Manual proxy refresh failed:", error);
     }).finally(async () => {
@@ -881,17 +881,24 @@ export default {
   },
   async scheduled(controller, env) {
     if (!env.DB) throw new Error("D1 binding DB is not configured");
-    const meta = await env.DB.prepare("SELECT checked_at FROM proxy_status_meta WHERE id=1").first();
-    const last = meta?.checked_at ? Date.parse(meta.checked_at) : NaN;
-    const published = await env.DB.prepare(
-      "SELECT COUNT(*) AS count FROM proxy_links l JOIN proxy_status_cache c " +
-      "ON c.server=l.server AND c.port=l.port WHERE c.status='online' AND c.checked_at=?"
-    ).bind(meta?.checked_at || "").first();
-    const hasPublishedProxies = Number(published?.count || 0) > 0;
-    if (Number.isFinite(last) && Date.now() - last < PROXY_REFRESH_INTERVAL_MS && hasPublishedProxies) return;
-    const result = await runLockedProxyRefresh(env);
+    const now = new Date().toISOString();
+    const sourceMeta = await env.DB.prepare(
+      "SELECT sources_checked_at FROM proxy_catalog_meta WHERE id=1"
+    ).first();
+    const lastSourceSync = sourceMeta?.sources_checked_at ? Date.parse(sourceMeta.sources_checked_at) : NaN;
+    const due = await env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM proxy_probe_queue WHERE next_check_at <= ?"
+    ).bind(now).first();
+    const sourceSyncDue = !Number.isFinite(lastSourceSync) || Date.now() - lastSourceSync >= PROXY_REFRESH_INTERVAL_MS;
+    const checksDue = Number(due?.count || 0) > 0;
+    if (!sourceSyncDue && !checksDue) return;
+
+    const result = await runLockedProxyRefresh(env, false);
     if (result.changed) {
-      console.log("Proxy catalog refreshed:", result.onlineCount + "/" + result.targetCount + " online", "sources=" + result.sourceCount, result.checkedAt);
+      console.log(
+        "Proxy catalog batch:", result.onlineCount + " online / " + result.checkedCount + " checked",
+        "queue=" + result.targetCount, "sources=" + result.sourceCount, result.checkedAt
+      );
     }
   }
 };
