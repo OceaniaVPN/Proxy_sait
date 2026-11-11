@@ -354,8 +354,8 @@ async function runLockedProxyRefresh(env) {
 }
 
 async function getVerifiedProxyFeed(env, ctx) {
-  const pendingMessage = "Каталог прокси обновляется. Страница сайта проверит результат автоматически.\\n";
-  if (!env.DB) return new Response("База каталога пока недоступна.\\n", { status: 503, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
+  const pendingMessage = "Каталог прокси обновляется. Страница сайта проверит результат автоматически.\n";
+  if (!env.DB) return new Response("База каталога пока недоступна.\n", { status: 503, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
 
   const lock = await env.DB.prepare("SELECT started_at FROM proxy_refresh_lock WHERE id=1").first();
   const lockStartedAt = lock?.started_at ? Date.parse(lock.started_at) : NaN;
@@ -458,9 +458,25 @@ async function handleApi(request, env, url, ctx) {
   if (path === "/api/proxy-refresh" && method === "POST") {
     if (!sameOrigin(request, url)) return json({ error: "Origin check failed." }, 403);
     if (!ctx?.waitUntil) return json({ error: "Background refresh is unavailable." }, 503);
-    ctx.waitUntil(runLockedProxyRefresh(env).then(result => {
-      if (result.changed) console.log("Manual proxy refresh completed:", result.onlineCount + "/" + result.targetCount + " online");
-    }).catch(error => console.error("Manual proxy refresh failed:", error)));
+
+    const startedAt = new Date().toISOString();
+    const staleBefore = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const lock = await env.DB.prepare(
+      "INSERT INTO proxy_refresh_lock (id, started_at) VALUES (1, ?) " +
+      "ON CONFLICT(id) DO UPDATE SET started_at=excluded.started_at WHERE proxy_refresh_lock.started_at < ?"
+    ).bind(startedAt, staleBefore).run();
+    if (Number(lock.meta?.changes || 0) !== 1) {
+      return json({ accepted: true, alreadyRunning: true, message: "Обновление уже выполняется." }, 202);
+    }
+
+    const task = refreshProxyStatusCache(env).then(result => {
+      console.log("Manual proxy refresh completed:", result.onlineCount + "/" + result.targetCount + " online");
+    }).catch(error => {
+      console.error("Manual proxy refresh failed:", error);
+    }).finally(async () => {
+      await env.DB.prepare("DELETE FROM proxy_refresh_lock WHERE id=1 AND started_at=?").bind(startedAt).run();
+    });
+    ctx.waitUntil(task);
     return json({ accepted: true, message: "Обновление каталога запущено." }, 202);
   }
 
