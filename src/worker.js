@@ -430,8 +430,6 @@ async function getCachedProxyStatuses(env) {
 async function getHealth(env) {
   if (!env.DB) return json({ ok: false, error: "D1 binding DB is not configured." }, 503);
 
-  // Return an actionable setup response instead of a blank 500 when migration 0004
-  // has not yet been applied to the remote D1 database.
   const sourceTable = await env.DB.prepare(
     "SELECT name FROM sqlite_master WHERE type='table' AND name='proxy_source_health' LIMIT 1"
   ).first();
@@ -441,48 +439,79 @@ async function getHealth(env) {
       code: "MIGRATION_REQUIRED",
       message: "Для статистики источников не применена миграция 0004_proxy_source_health.sql.",
       migration: "npx wrangler d1 migrations apply steklovpn-shared --remote",
-      configuredSources: PROXY_SOURCES.length,
-      sources: PROXY_SOURCES.map(item => ({
-        source: item.name,
-        url: item.url,
-        status: "migration_required",
-        parsedCount: null,
-        checkedCount: null,
-        onlineCount: null,
-        offlineCount: null
-      }))
+      configuredSources: PROXY_SOURCES.length
     }, 503);
   }
 
-  const [meta, rows, sources, lock] = await Promise.all([
-    env.DB.prepare("SELECT checked_at, target_count FROM proxy_status_meta WHERE id=1").first(),
+  const meta = await env.DB.prepare(
+    "SELECT checked_at, target_count FROM proxy_status_meta WHERE id=1"
+  ).first();
+  const checkedAt = meta?.checked_at || "";
+  const [allRows, currentRows, savedSources, sourceAggregates, feedCount, lock] = await Promise.all([
     env.DB.prepare("SELECT status, COUNT(*) AS count FROM proxy_status_cache GROUP BY status").all(),
+    env.DB.prepare("SELECT status, COUNT(*) AS count FROM proxy_status_cache WHERE checked_at=? GROUP BY status").bind(checkedAt).all(),
     env.DB.prepare("SELECT source, url, status, http_status AS httpStatus, bytes, parsed_count AS parsedCount, checked_count AS checkedCount, online_count AS onlineCount, offline_count AS offlineCount, checked_at AS checkedAt, error FROM proxy_source_health ORDER BY source").all(),
+    env.DB.prepare(
+      "SELECT l.source AS source, COUNT(*) AS parsedCount, " +
+      "SUM(CASE WHEN c.server IS NOT NULL THEN 1 ELSE 0 END) AS checkedCount, " +
+      "SUM(CASE WHEN c.status='online' THEN 1 ELSE 0 END) AS onlineCount, " +
+      "SUM(CASE WHEN c.status='offline' THEN 1 ELSE 0 END) AS offlineCount " +
+      "FROM proxy_links l LEFT JOIN proxy_status_cache c ON c.server=l.server AND c.port=l.port AND c.checked_at=? " +
+      "GROUP BY l.source"
+    ).bind(checkedAt).all(),
+    env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM proxy_links l JOIN proxy_status_cache c " +
+      "ON c.server=l.server AND c.port=l.port WHERE c.status='online' AND c.checked_at=?"
+    ).bind(checkedAt).first(),
     env.DB.prepare("SELECT started_at FROM proxy_refresh_lock WHERE id=1").first()
   ]);
-  const counts = Object.fromEntries((rows.results || []).map(row => [row.status, Number(row.count || 0)]));
-  const savedSources = new Map((sources.results || []).map(item => [item.source, item]));
-  const sourceRows = PROXY_SOURCES.map(config => savedSources.get(config.name) || {
-    source: config.name, url: config.url, status: "pending", httpStatus: null,
-    bytes: 0, parsedCount: 0, checkedCount: 0, onlineCount: 0,
-    offlineCount: 0, checkedAt: null, error: null
+
+  const totalCounts = Object.fromEntries((allRows.results || []).map(row => [row.status, Number(row.count || 0)]));
+  const currentCounts = Object.fromEntries((currentRows.results || []).map(row => [row.status, Number(row.count || 0)]));
+  const saved = new Map((savedSources.results || []).map(item => [item.source, item]));
+  const aggregates = new Map((sourceAggregates.results || []).map(item => [item.source, item]));
+  const sourceRows = PROXY_SOURCES.map(config => {
+    const recorded = saved.get(config.name);
+    if (recorded) return recorded;
+    const aggregate = aggregates.get(config.name);
+    if (!aggregate) {
+      return {
+        source: config.name, url: config.url, status: "pending",
+        parsedCount: 0, checkedCount: 0, onlineCount: 0, offlineCount: 0,
+        checkedAt: null, error: "Источник ещё не учтён в последнем обновлении"
+      };
+    }
+    return {
+      source: config.name, url: config.url, status: "legacy_data",
+      parsedCount: Number(aggregate.parsedCount || 0),
+      checkedCount: Number(aggregate.checkedCount || 0),
+      onlineCount: Number(aggregate.onlineCount || 0),
+      offlineCount: Number(aggregate.offlineCount || 0),
+      checkedAt: checkedAt || null,
+      error: "Статистика восстановлена из существующего каталога; HTTP-результат источника ещё не записан"
+    };
   });
-  const online = counts.online || 0;
-  const offline = counts.offline || 0;
+  const online = currentCounts.online || 0;
+  const offline = currentCounts.offline || 0;
+  const uniqueChecked = online + offline;
+  const feedOnline = Number(feedCount?.count || 0);
   return json({
     ok: true,
     service: "Proxy Sait",
-    checkedAt: meta?.checked_at || null,
+    checkedAt: checkedAt || null,
     refreshing: Boolean(lock?.started_at && Date.now() - Date.parse(lock.started_at) < 10 * 60 * 1000),
     summary: {
       configuredSources: PROXY_SOURCES.length,
       sourcesOk: sourceRows.filter(item => item.status === "ok").length,
       sourcesFailed: sourceRows.filter(item => item.status === "error").length,
       sourcesPending: sourceRows.filter(item => item.status === "pending").length,
-      uniqueChecked: Number(meta?.target_count || 0),
+      sourcesWithExistingData: sourceRows.filter(item => item.status === "legacy_data").length,
+      uniqueChecked,
+      cachedStatusRows: Object.values(totalCounts).reduce((sum, n) => sum + n, 0),
       online,
       offline,
-      onlinePercent: meta?.target_count ? Math.round(online / Number(meta.target_count) * 100) : 0
+      feedOnline,
+      onlinePercent: uniqueChecked ? Math.round(online / uniqueChecked * 100) : 0
     },
     sources: sourceRows
   });
