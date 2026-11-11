@@ -436,7 +436,12 @@ async function getHealth(env) {
     env.DB.prepare("SELECT started_at FROM proxy_refresh_lock WHERE id=1").first()
   ]);
   const counts = Object.fromEntries((rows.results || []).map(row => [row.status, Number(row.count || 0)]));
-  const sourceRows = sources.results || [];
+  const savedSources = new Map((sources.results || []).map(item => [item.source, item]));
+  const sourceRows = PROXY_SOURCES.map(config => savedSources.get(config.name) || {
+    source: config.name, url: config.url, status: "pending", httpStatus: null,
+    bytes: 0, parsedCount: 0, checkedCount: 0, onlineCount: 0,
+    offlineCount: 0, checkedAt: null, error: null
+  });
   const online = counts.online || 0;
   const offline = counts.offline || 0;
   return json({
@@ -447,7 +452,8 @@ async function getHealth(env) {
     summary: {
       configuredSources: PROXY_SOURCES.length,
       sourcesOk: sourceRows.filter(item => item.status === "ok").length,
-      sourcesFailed: sourceRows.filter(item => item.status !== "ok").length,
+      sourcesFailed: sourceRows.filter(item => item.status === "error").length,
+      sourcesPending: sourceRows.filter(item => item.status === "pending").length,
       uniqueChecked: Number(meta?.target_count || 0),
       online,
       offline,
@@ -504,6 +510,9 @@ async function handleApi(request, env, url, ctx) {
   const method = request.method;
   if (path === "/api/proxy-status" && method === "GET") {
     return getCachedProxyStatuses(env);
+  }
+  if (path === "/api/health" && method === "GET") {
+    return getHealth(env);
   }
   if (!env.DB) return json({ error: "Database binding DB is not configured." }, 503);
 
@@ -643,7 +652,7 @@ export default {
 
     const headers = new Headers(response.headers);
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value);
-    if (url.pathname.startsWith("/api/")) {
+    if (url.pathname.startsWith("/api/") || url.pathname === "/health") {
       headers.set("Cache-Control", "no-store");
       headers.set("Pragma", "no-cache");
     } else if (url.pathname === "/" || url.pathname.endsWith(".html")) {
