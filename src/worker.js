@@ -14,7 +14,7 @@ const encoder = new TextEncoder();
 const TCP_PROBE_VERSION = "v4";
 const PROXY_REFRESH_INTERVAL_MS = 5 * 60 * 60 * 1000;
 const PROXY_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
-const MAX_PROXY_TARGETS = 48;
+const MAX_PROXY_TARGETS = 48; // Maximum endpoints in one probe batch, not a catalog limit.
 const MAX_PROXY_SOURCE_BYTES = 512 * 1024;
 const PROXY_SOURCES = [
   { name: "OceaniaVPN/Proxy_sait:public/proxies.txt", url: "https://raw.githubusercontent.com/OceaniaVPN/Proxy_sait/main/public/proxies.txt" },
@@ -236,11 +236,6 @@ async function fetchProxySource(source) {
   } finally {
     clearTimeout(timer);
   }
-}
-
-async function sha256Hex(value) {
-  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(value));
-  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function runDbBatch(env, statements, batchSize = 40) {
