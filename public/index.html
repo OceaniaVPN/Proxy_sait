@@ -697,19 +697,21 @@
     function render() {
       const query = $('#search').value.trim().toLocaleLowerCase('ru');
       const direction = $('#sort').value;
-      const filtered = proxies
+      // Display only endpoints that passed both upstream MTProto verification and our latest TCP check.
+      const workingProxies = proxies.filter(proxy => proxy.pingStatus === 'online');
+      const filtered = workingProxies
         .filter(proxy => (activeProtocol === 'all' || proxy.protocol === activeProtocol)
           && (proxy.name + ' ' + proxy.url).toLocaleLowerCase('ru').includes(query))
         .sort((a, b) => direction === 'name-desc'
           ? b.name.localeCompare(a.name, 'ru')
           : a.name.localeCompare(b.name, 'ru'));
 
-      const count = protocol => proxies.filter(proxy => proxy.protocol === protocol).length;
-      $('#stat-total').textContent = String(proxies.length);
+      const count = protocol => workingProxies.filter(proxy => proxy.protocol === protocol).length;
+      $('#stat-total').textContent = String(workingProxies.length);
       $('#stat-mtproto').textContent = String(count('MTProto'));
       $('#stat-socks').textContent = String(count('SOCKS5 (TG)'));
       $('#stat-web').textContent = String(count('WEB (TG)'));
-      $('#filter-all').textContent = String(proxies.length);
+      $('#filter-all').textContent = String(workingProxies.length);
       $('#filter-mtproto').textContent = String(count('MTProto'));
       $('#filter-socks').textContent = String(count('SOCKS5 (TG)'));
       $('#filter-web').textContent = String(count('WEB (TG)'));
