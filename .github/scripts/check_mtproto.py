@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import json
+import os
 import re
 import subprocess
 import sys
@@ -71,7 +72,8 @@ def parse_mtproto_links(feed: str) -> list[tuple[str, tuple[str, int, str]]]:
                 server = query.get("server", [""])[0].strip().lower()
                 port = int(query.get("port", ["0"])[0])
                 secret = query.get("secret", [""])[0]
-                if not server or not (1 <= port <= 65535) or not secret:
+                if not server or not (1 <= port <= 65535) or not secret or len(secret) < 16 or len(secret) > 512:
+                    # MTProto links without a usable secret cannot be deeply checked.
                     continue
                 identity = (server, port, secret)
                 unique.setdefault(identity, candidate)
@@ -157,15 +159,53 @@ def main() -> int:
             source_errors.append(error)
             continue
         parsed = parse_mtproto_links(feed)
-        if parsed:
-            loaded_sources += 1
-            for item in parsed:
-                all_items.setdefault(item[1], item)
+        loaded_sources += 1
+        for item in parsed:
+            all_items.setdefault(item[1], item)
 
+    output = Path(args.output)
+
+    def write_skipped_snapshot(reason: str, discovered: int) -> int:
+        checked_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        snapshot = {
+            "version": 1,
+            "checker": "skipped:" + reason,
+            "status": "skipped",
+            "skipReason": reason,
+            "checkLevel": "MTProto handshake + HelpGetNearestDC",
+            "checkedAt": checked_at,
+            "durationMs": max(1, round((time.monotonic() - started) * 1000)),
+            "sourceCount": loaded_sources,
+            "sourceErrors": source_errors[:20],
+            "discoveredLinks": discovered,
+            "checkedCount": 0,
+            "workingCount": 0,
+            "failedCount": 0,
+            "results": [],
+        }
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(snapshot, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
+        print(json.dumps({
+            "status": "skipped",
+            "reason": reason,
+            "discovered": discovered,
+            "checked": 0,
+            "sources": loaded_sources,
+        }, ensure_ascii=False))
+        return 0
+
+    if not loaded_sources:
+        raise RuntimeError("All MTProto source feeds failed; keeping the previous health snapshot.")
     if not all_items:
-        raise RuntimeError("No MTProto proxy links were collected; refusing to publish an empty snapshot.")
+        # Feeds can be healthy but contain only SOCKS/WEB links or MTProto links without a secret.
+        return write_skipped_snapshot("no_valid_mtproto_links", 0)
     if len(all_items) > MAX_RESULTS:
         raise RuntimeError(f"Collected {len(all_items)} links, over the safety limit {MAX_RESULTS}.")
+
+    checker_path = Path(args.checker)
+    if not checker_path.is_file() or not os.access(checker_path, os.X_OK):
+        # Missing checker must not turn TCP results into false MTProto failures.
+        return write_skipped_snapshot("checker_unavailable", len(all_items))
 
     items = list(all_items.values())
     results: list[dict] = []
@@ -179,6 +219,7 @@ def main() -> int:
     checked_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
     snapshot = {
         "version": 1,
+        "status": "complete",
         "checker": "imbecility/mtproxy-checker",
         "checkLevel": "MTProto handshake + HelpGetNearestDC",
         "checkedAt": checked_at,
