@@ -16,6 +16,9 @@ const PROXY_REFRESH_INTERVAL_MS = 5 * 60 * 60 * 1000;
 const PROXY_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const MAX_PROXY_TARGETS = 48; // Maximum endpoints in one probe batch, not a catalog limit.
 const MAX_PROXY_SOURCE_BYTES = 512 * 1024;
+const MT_PROTO_HEALTH_URL = "https://raw.githubusercontent.com/OceaniaVPN/Proxy_sait/proxy-health/mtproto-status.json";
+const MT_PROTO_SYNC_RETRY_MS = 60 * 60 * 1000;
+const MT_PROTO_HEALTH_MAX_AGE_MS = 8 * 60 * 60 * 1000;
 const PROXY_SOURCES = [
   { name: "OceaniaVPN/Proxy_sait:public/proxies.txt", url: "https://raw.githubusercontent.com/OceaniaVPN/Proxy_sait/main/public/proxies.txt" },
   { name: "OceaniaVPN/Proxy_sait:data/proxies.txt", url: "https://raw.githubusercontent.com/OceaniaVPN/Proxy_sait/main/data/proxies.txt" },
@@ -346,6 +349,129 @@ async function syncProxySources(env) {
   };
 }
 
+
+
+async function isMtprotoProxyUrl(value) {
+  try {
+    const parsed = new URL(value);
+    return (parsed.protocol === "tg:" && parsed.hostname.toLowerCase() === "proxy")
+      || ((parsed.protocol === "https:" || parsed.protocol === "http:")
+        && parsed.hostname.toLowerCase() === "t.me"
+        && parsed.pathname.toLowerCase() === "/proxy");
+  } catch (_) {
+    return false;
+  }
+}
+
+function mtprotoLinkIdentity(value) {
+  const parsed = new URL(value);
+  const isTelegramLink = (parsed.protocol === "tg:" && parsed.hostname.toLowerCase() === "proxy")
+    || ((parsed.protocol === "https:" || parsed.protocol === "http:")
+      && parsed.hostname.toLowerCase() === "t.me"
+      && parsed.pathname.toLowerCase() === "/proxy");
+  if (!isTelegramLink) throw new Error("Not an MTProto proxy URL");
+  const server = (parsed.searchParams.get("server") || "").trim().toLowerCase();
+  const port = Number(parsed.searchParams.get("port") || parsed.port || 0);
+  const secret = parsed.searchParams.get("secret") || "";
+  if (!server || !Number.isInteger(port) || port < 1 || port > 65535 || !secret) {
+    throw new Error("Incomplete MTProto proxy URL");
+  }
+  return ["proxy", server, String(port), secret].join("|");
+}
+
+async function hashMtprotoLink(value) {
+  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(mtprotoLinkIdentity(value)));
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function syncMtprotoHealth(env, force = false) {
+  const previous = await env.DB.prepare(
+    "SELECT checked_at, attempted_at FROM proxy_mtproto_meta WHERE id=1"
+  ).first();
+  const lastAttempt = previous?.attempted_at || previous?.checked_at || null;
+  const lastAttemptMs = lastAttempt ? Date.parse(lastAttempt) : NaN;
+  if (!force && Number.isFinite(lastAttemptMs) && Date.now() - lastAttemptMs < MT_PROTO_SYNC_RETRY_MS) {
+    return { skipped: true, checkedAt: previous?.checked_at || null };
+  }
+
+  const attemptedAt = new Date().toISOString();
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    let response;
+    let raw;
+    try {
+      response = await fetch(MT_PROTO_HEALTH_URL, {
+        headers: { "Accept": "application/json" },
+        cache: "no-store",
+        signal: controller.signal
+      });
+      if (!response.ok) throw new Error("Snapshot HTTP " + response.status);
+      raw = await response.text();
+    } finally {
+      clearTimeout(timer);
+    }
+    if (raw.length > 4 * 1024 * 1024) throw new Error("MTProto snapshot is too large");
+    const snapshot = JSON.parse(raw);
+    const checkedAt = typeof snapshot?.checkedAt === "string" ? snapshot.checkedAt : "";
+    const checkedAtMs = Date.parse(checkedAt);
+    if (snapshot?.version !== 1 || !Array.isArray(snapshot.results) || !snapshot.results.length
+      || !Number.isFinite(checkedAtMs)) {
+      throw new Error("Invalid MTProto snapshot format");
+    }
+    const ageMs = Date.now() - checkedAtMs;
+    if (ageMs < -5 * 60 * 1000 || ageMs > MT_PROTO_HEALTH_MAX_AGE_MS) {
+      throw new Error("MTProto snapshot is stale");
+    }
+
+    const writes = [];
+    for (const item of snapshot.results) {
+      if (!item || typeof item.url !== "string" || !await isMtprotoProxyUrl(item.url)) continue;
+      if (!["online", "offline"].includes(item.status)) continue;
+      const server = typeof item.server === "string" ? item.server.trim() : "";
+      const port = Number(item.port);
+      if (!server || !Number.isInteger(port) || port < 1 || port > 65535) continue;
+      const linkKey = await hashMtprotoLink(item.url);
+      const latencyMs = Number.isFinite(Number(item.latencyMs)) ? Math.max(1, Math.round(Number(item.latencyMs))) : null;
+      const errorCode = typeof item.errorCode === "string" ? item.errorCode.slice(0, 80) : null;
+      writes.push(env.DB.prepare(
+        "INSERT INTO proxy_mtproto_status (link_key, server, port, status, latency_ms, checked_at, error_code, checker, dc) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(link_key) DO UPDATE SET " +
+        "server=excluded.server, port=excluded.port, status=excluded.status, latency_ms=excluded.latency_ms, " +
+        "checked_at=excluded.checked_at, error_code=excluded.error_code, checker=excluded.checker, dc=excluded.dc"
+      ).bind(linkKey, server, port, item.status, item.status === "online" ? latencyMs : null,
+        checkedAt, errorCode, String(snapshot.checker || "mtproxy-checker").slice(0, 80),
+        Number.isInteger(Number(item.dc)) ? Number(item.dc) : null));
+    }
+    if (!writes.length) throw new Error("No valid MTProto results in snapshot");
+    await runDbBatch(env, writes, 40);
+
+    const sourceCount = Math.max(0, Number(snapshot.sourceCount) || 0);
+    const discoveredLinks = Math.max(writes.length, Number(snapshot.discoveredLinks) || writes.length);
+    const checkedCount = Math.max(writes.length, Number(snapshot.checkedCount) || writes.length);
+    const workingCount = Math.max(0, Number(snapshot.workingCount) || 0);
+    const failedCount = Math.max(0, Number(snapshot.failedCount) || 0);
+    const durationMs = Math.max(0, Number(snapshot.durationMs) || 0);
+    await env.DB.prepare(
+      "INSERT INTO proxy_mtproto_meta (id, checked_at, attempted_at, source_count, discovered_links, checked_count, working_count, failed_count, duration_ms, checker) " +
+      "VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET " +
+      "checked_at=excluded.checked_at, attempted_at=excluded.attempted_at, source_count=excluded.source_count, " +
+      "discovered_links=excluded.discovered_links, checked_count=excluded.checked_count, working_count=excluded.working_count, " +
+      "failed_count=excluded.failed_count, duration_ms=excluded.duration_ms, checker=excluded.checker"
+    ).bind(checkedAt, attemptedAt, sourceCount, discoveredLinks, checkedCount, workingCount, failedCount,
+      durationMs, String(snapshot.checker || "mtproxy-checker").slice(0, 80)).run();
+
+    return { checkedAt, checkedCount: writes.length, workingCount, failedCount, sourceCount };
+  } catch (error) {
+    await env.DB.prepare(
+      "INSERT INTO proxy_mtproto_meta (id, attempted_at) VALUES (1, ?) " +
+      "ON CONFLICT(id) DO UPDATE SET attempted_at=excluded.attempted_at"
+    ).bind(attemptedAt).run();
+    console.warn("MTProto health snapshot sync failed:", error?.message || String(error));
+    return { skipped: true, error: error?.message || String(error), checkedAt: previous?.checked_at || null };
+  }
+}
+
 async function updateProxySourceHealthCounts(env) {
   const cutoff = new Date(Date.now() - PROXY_CACHE_MAX_AGE_MS).toISOString();
   const aggregates = await env.DB.prepare(
@@ -418,9 +544,10 @@ async function refreshProxyCatalog(env, forceSourceSync = false) {
     sourceResult = await syncProxySources(env);
   }
 
+  const mtprotoResult = await syncMtprotoHealth(env, forceSourceSync);
   const batchResult = await processProxyProbeBatch(env);
   return {
-    changed: Boolean(sourceResult || batchResult.checkedCount),
+    changed: Boolean(sourceResult || batchResult.checkedCount || (mtprotoResult && !mtprotoResult.skipped)),
     sourceCount: sourceResult?.sourceCount || 0,
     failedSourceCount: sourceResult?.failedSourceCount || 0,
     parsedLinkCount: sourceResult?.parsedLinkCount || 0,
@@ -428,7 +555,8 @@ async function refreshProxyCatalog(env, forceSourceSync = false) {
     targetCount: batchResult.targetCount,
     onlineCount: batchResult.onlineCount,
     offlineCount: batchResult.offlineCount,
-    checkedAt: batchResult.checkedAt || new Date().toISOString()
+    checkedAt: batchResult.checkedAt || new Date().toISOString(),
+    mtproto: mtprotoResult
   };
 }
 
