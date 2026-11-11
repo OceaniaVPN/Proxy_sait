@@ -552,7 +552,7 @@
 
   <script>
     // Список серверов загружается из Cloudflare Static Assets.
-    const FEED_URL = '/proxies.txt';
+    const FEED_URL = '/api/proxies';
     const $ = (selector) => document.querySelector(selector);
     let proxies = [];
     let toastTimer;
@@ -879,7 +879,7 @@
 
         for (let attempt = 0; attempt < 36; attempt++) {
           const response = await fetch(`${FEED_URL}?_=${Date.now()}`, {
-            method: 'GET', cache: 'no-store', headers: { 'Accept': 'text/plain' }
+            method: 'GET', cache: 'no-store', headers: { 'Accept': 'application/json' }
           });
 
           if (response.status === 503 && response.headers.get('X-Proxy-Refresh') === 'pending') {
@@ -893,8 +893,10 @@
             throw new Error(response.status === 404 ? 'NOT_FOUND' : `HTTP_${response.status}`);
           }
 
-          const text = await response.text();
-          proxies = extractProxyLinks(text);
+          const payload = await response.json();
+          if (!Array.isArray(payload?.proxies)) throw new Error('INVALID_FEED_FORMAT');
+          proxies = extractProxyLinks(payload.proxies.join('\\n'));
+          if (Number(payload.count || 0) > 0 && proxies.length === 0) throw new Error('FEED_PARSE_EMPTY');
           render();
 
           if (!proxies.length) {
@@ -927,7 +929,10 @@
             ? 'Источники или серверы отвечают медленно. Нажми «Обновить», чтобы проверить ещё раз.'
             : error.message.startsWith('REFRESH_HTTP_')
               ? 'Не удалось запустить обновление. Проверь настройки Worker и D1.'
-              : 'Проверь соединение и попробуй обновить каталог ещё раз.';
+              : error.message === 'INVALID_FEED_FORMAT' ? 'Сервер вернул неизвестный формат каталога. Обнови страницу после деплоя.'
+          : error.message === 'FEED_PARSE_EMPTY' ? 'Сервер сообщил о прокси, но ссылки не удалось разобрать.'
+          : error.message.startsWith('HTTP_') ? 'Ошибка API каталога: ' + error.message
+          : 'Не удалось связаться с API каталога. Проверь соединение и попробуй ещё раз.';
         inner.append(title, message);
         state.append(inner);
         list.append(state);
