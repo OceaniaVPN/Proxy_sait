@@ -21,6 +21,7 @@ const PROXY_SOURCES = [
   { name: "OceaniaVPN/Proxy_sait:data/proxies.txt", url: "https://raw.githubusercontent.com/OceaniaVPN/Proxy_sait/main/data/proxies.txt" },
   { name: "iwizard7/MTProxy_list:working", url: "https://iwizard7.github.io/MTProxy_list/working.txt" },
   { name: "iwizard7/MTProxy_list:stable", url: "https://iwizard7.github.io/MTProxy_list/stable.txt" },
+  { name: "iwizard7/MTProxy_list:all", url: "https://iwizard7.github.io/MTProxy_list/all.txt" },
   { name: "0xRadikal/Free-Telegram-Proxy:fast", url: "https://raw.githubusercontent.com/0xRadikal/Free-Telegram-Proxy/main/fast/tg.txt" },
   { name: "0xRadikal/Free-Telegram-Proxy:stable", url: "https://raw.githubusercontent.com/0xRadikal/Free-Telegram-Proxy/main/stable/tg.txt" },
   { name: "0xRadikal/Free-Telegram-Proxy:resilient-tg", url: "https://raw.githubusercontent.com/0xRadikal/Free-Telegram-Proxy/main/resilient/tg.txt" },
@@ -205,15 +206,14 @@ function extractTelegramProxyLinks(feed, sourceName) {
         const port = rawPort ? Number(rawPort) : (kind === "webproxy" ? 443 : 0);
         const secret = parsed.searchParams.get("secret") || "";
         if (!server || server.length > 253 || !Number.isInteger(port) || port < 1 || port > 65535) continue;
-
-        // MTProto requires its secret; SOCKS and WEB links have different URL formats.
         if (kind === "proxy" && (secret.length < 16 || secret.length > 512)) continue;
 
-        const target = { server, port, url: parsed.toString(), source: sourceName };
-        const key = proxyTargetKey(server, port);
-        if (!links.has(key)) links.set(key, target);
+        // Keep separate links when the endpoint is the same but the secret differs.
+        const normalizedUrl = parsed.toString();
+        const target = { server, port, url: normalizedUrl, source: sourceName };
+        if (!links.has(normalizedUrl)) links.set(normalizedUrl, target);
       } catch (_) {
-        // Пропускаем некорректные строки из списка.
+        // Ignore malformed or unsupported lines from public list files.
       }
     }
   }
@@ -238,10 +238,19 @@ async function fetchProxySource(source) {
   }
 }
 
-async function refreshProxyStatusCache(env) {
-  if (!env.DB) throw new Error("D1 binding DB is not configured");
-  const previous = await env.DB.prepare("SELECT server, port, proxy_url, source FROM proxy_links").all();
+async function sha256Hex(value) {
+  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(value));
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+}
 
+async function runDbBatch(env, statements, batchSize = 40) {
+  for (let offset = 0; offset < statements.length; offset += batchSize) {
+    await env.DB.batch(statements.slice(offset, offset + batchSize));
+  }
+}
+
+async function syncProxySources(env) {
+  if (!env.DB) throw new Error("D1 binding DB is not configured");
   const sourceResults = await Promise.all(PROXY_SOURCES.map(async source => {
     try {
       const feed = await fetchProxySource(source);
@@ -254,14 +263,11 @@ async function refreshProxyStatusCache(env) {
       return { source, feed: "", links: new Map(), error: message };
     }
   }));
-  const loaded = sourceResults.filter(item => item.links.size > 0);
-  const failed = sourceResults.filter(item => item.links.size === 0);
-  const loadedNames = new Set(loaded.map(item => item.source.name));
-  const failedNames = new Set(failed.map(item => item.source.name));
 
+  const loaded = sourceResults.filter(item => item.links.size > 0);
+  const checkedAt = new Date().toISOString();
   if (!loaded.length) {
-    const checkedAt = new Date().toISOString();
-    await env.DB.batch(sourceResults.map(item => env.DB.prepare(
+    await runDbBatch(env, sourceResults.map(item => env.DB.prepare(
       "INSERT INTO proxy_source_health (source, url, status, http_status, bytes, parsed_count, checked_count, online_count, offline_count, checked_at, error) " +
       "VALUES (?, ?, 'error', NULL, 0, 0, 0, 0, 0, ?, ?) ON CONFLICT(source) DO UPDATE SET " +
       "url=excluded.url, status='error', bytes=0, parsed_count=0, checked_count=0, online_count=0, offline_count=0, checked_at=excluded.checked_at, error=excluded.error"
@@ -269,101 +275,169 @@ async function refreshProxyStatusCache(env) {
     throw new Error("All proxy sources failed; existing catalog kept");
   }
 
-  // Build one pool per source and interleave them. This prevents a large repository
-  // file from consuming the entire probe budget before other sources are considered.
-  const pools = loaded.map(item => Array.from(item.links.values()));
-  for (const sourceName of failedNames) {
-    const preserved = (previous.results || [])
-      .filter(row => row.source === sourceName)
-      .map(row => ({
-        server: row.server,
-        port: Number(row.port),
-        url: row.proxy_url,
-        source: row.source
-      }));
-    if (preserved.length) pools.push(preserved);
-  }
+  const linkStatements = [];
+  const queueStatements = new Map();
+  const legacyStatements = new Map();
+  const sourceHealthStatements = [];
+  const sourceFingerprintParts = [];
+  let parsedLinkCount = 0;
 
-  const candidates = new Map();
-  const rotationSlot = Math.floor(Date.now() / PROXY_REFRESH_INTERVAL_MS);
-  const maxPoolLength = Math.max(0, ...pools.map(pool => pool.length));
-  for (let offset = 0; candidates.size < MAX_PROXY_TARGETS && offset < maxPoolLength; offset++) {
-    let foundAtOffset = false;
-    for (const pool of pools) {
-      if (!pool.length) continue;
-      // Move eight positions per five-hour refresh window so later entries are eventually checked.
-      const startIndex = (rotationSlot * 8) % pool.length;
-      const link = pool[(startIndex + offset) % pool.length];
-      if (!link) continue;
-      foundAtOffset = true;
-      const key = proxyTargetKey(link.server, link.port);
-      if (!candidates.has(key) && candidates.size < MAX_PROXY_TARGETS) candidates.set(key, link);
+  for (const item of sourceResults) {
+    if (item.links.size) {
+      sourceFingerprintParts.push(item.source.url + "\n" + item.feed);
+      parsedLinkCount += item.links.size;
+      for (const link of item.links.values()) {
+        const linkId = await sha256Hex(item.source.name + "\n" + link.url);
+        linkStatements.push(env.DB.prepare(
+          "INSERT INTO proxy_catalog_links (link_id, server, port, proxy_url, source, first_seen_at, last_seen_at) " +
+          "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(link_id) DO UPDATE SET " +
+          "server=excluded.server, port=excluded.port, proxy_url=excluded.proxy_url, source=excluded.source, last_seen_at=excluded.last_seen_at"
+        ).bind(linkId, link.server, link.port, link.url, item.source.name, checkedAt, checkedAt));
+
+        const endpointKey = proxyTargetKey(link.server, link.port);
+        if (!queueStatements.has(endpointKey)) {
+          queueStatements.set(endpointKey, env.DB.prepare(
+            "INSERT INTO proxy_probe_queue (server, port, queued_at, checked_at, next_check_at) VALUES (?, ?, ?, NULL, ?) " +
+            "ON CONFLICT(server, port) DO UPDATE SET next_check_at=excluded.next_check_at"
+          ).bind(link.server, link.port, checkedAt, checkedAt));
+        }
+        // Keep one compatibility row per host:port for older API paths.
+        if (!legacyStatements.has(endpointKey)) {
+          legacyStatements.set(endpointKey, env.DB.prepare(
+            "INSERT INTO proxy_links (server, port, proxy_url, source) VALUES (?, ?, ?, ?) " +
+            "ON CONFLICT(server, port) DO UPDATE SET proxy_url=excluded.proxy_url, source=excluded.source"
+          ).bind(link.server, link.port, link.url, item.source.name));
+        }
+      }
     }
-    if (!foundAtOffset) break;
-  }
 
-  const selected = Array.from(candidates.values());
-  if (!selected.length) throw new Error("No proxy endpoints found");
-  const checked = await probeTcpTargets(selected.map(item => ({ server: item.server, port: item.port })));
-  const checkedAt = new Date().toISOString();
-
-  for (let offset = 0; offset < checked.length; offset += 30) {
-    const batch = [];
-    for (let i = offset; i < Math.min(offset + 30, checked.length); i++) {
-      const link = selected[i], status = checked[i];
-      batch.push(env.DB.prepare(
-        "INSERT INTO proxy_links (server, port, proxy_url, source) VALUES (?, ?, ?, ?) " +
-        "ON CONFLICT(server, port) DO UPDATE SET proxy_url=excluded.proxy_url, source=excluded.source"
-      ).bind(link.server, link.port, link.url, link.source));
-      batch.push(env.DB.prepare(
-        "INSERT INTO proxy_status_cache (server, port, status, latency_ms, checked_at) VALUES (?, ?, ?, ?, ?) " +
-        "ON CONFLICT(server, port) DO UPDATE SET status=excluded.status, latency_ms=excluded.latency_ms, checked_at=excluded.checked_at"
-      ).bind(status.server, status.port, status.status, status.latencyMs, checkedAt));
-    }
-    await env.DB.batch(batch);
-  }
-
-  await env.DB.prepare(
-    "DELETE FROM proxy_links WHERE NOT EXISTS (SELECT 1 FROM proxy_status_cache c WHERE c.server=proxy_links.server AND c.port=proxy_links.port AND c.checked_at=?)"
-  ).bind(checkedAt).run();
-  await env.DB.prepare("DELETE FROM proxy_status_cache WHERE checked_at <> ?").bind(checkedAt).run();
-
-  const sourceHealthWrites = sourceResults.map(item => {
-    const sourceLinks = item.links ? Array.from(item.links.values()) : [];
-    const checkedIndexes = [];
-    for (let i = 0; i < selected.length; i++) {
-      if (selected[i].source === item.source.name) checkedIndexes.push(i);
-    }
-    const sourceOnline = checkedIndexes.filter(i => checked[i]?.status === "online").length;
-    const sourceOffline = checkedIndexes.length - sourceOnline;
-    const status = item.links.size ? "ok" : "error";
-    return env.DB.prepare(
+    sourceHealthStatements.push(env.DB.prepare(
       "INSERT INTO proxy_source_health (source, url, status, http_status, bytes, parsed_count, checked_count, online_count, offline_count, checked_at, error) " +
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(source) DO UPDATE SET " +
+      "VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?) ON CONFLICT(source) DO UPDATE SET " +
       "url=excluded.url, status=excluded.status, http_status=excluded.http_status, bytes=excluded.bytes, parsed_count=excluded.parsed_count, " +
-      "checked_count=excluded.checked_count, online_count=excluded.online_count, offline_count=excluded.offline_count, checked_at=excluded.checked_at, error=excluded.error"
-    ).bind(item.source.name, item.source.url, status, item.error ? null : 200, item.feed.length, sourceLinks.length,
-      checkedIndexes.length, sourceOnline, sourceOffline, checkedAt, item.error);
-  });
-  await env.DB.batch(sourceHealthWrites);
+      "checked_at=excluded.checked_at, error=excluded.error"
+    ).bind(item.source.name, item.source.url, item.error ? "error" : "ok", item.error ? null : 200,
+      item.feed.length, item.links.size, checkedAt, item.error));
+  }
 
-  const fingerprint = loaded.map(item => item.source.url + "\n" + item.feed).join("\n---\n");
-  const feedHash = await hashProxyFeed(fingerprint);
+  await runDbBatch(env, linkStatements, 40);
+  await runDbBatch(env, Array.from(queueStatements.values()), 40);
+  await runDbBatch(env, Array.from(legacyStatements.values()), 40);
+  await runDbBatch(env, sourceHealthStatements, 40);
+
+  // Keep old entries during temporary upstream outages, but retire links that have
+  // disappeared from every configured source for 30 days.
+  const staleBefore = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  await env.DB.prepare("DELETE FROM proxy_catalog_links WHERE last_seen_at < ?").bind(staleBefore).run();
   await env.DB.prepare(
-    "INSERT INTO proxy_status_meta (id, feed_hash, checked_at, target_count) VALUES (1, ?, ?, ?) " +
-    "ON CONFLICT(id) DO UPDATE SET feed_hash=excluded.feed_hash, checked_at=excluded.checked_at, target_count=excluded.target_count"
-  ).bind(feedHash, checkedAt, checked.length).run();
+    "DELETE FROM proxy_probe_queue WHERE NOT EXISTS (" +
+    "SELECT 1 FROM proxy_catalog_links l WHERE l.server=proxy_probe_queue.server AND l.port=proxy_probe_queue.port)"
+  ).run();
+
+  const sourceHash = await hashProxyFeed(sourceFingerprintParts.join("\n---\n"));
+  const totalEndpoints = await env.DB.prepare("SELECT COUNT(*) AS count FROM proxy_probe_queue").first();
+  await env.DB.prepare(
+    "INSERT INTO proxy_catalog_meta (id, sources_checked_at, source_hash, source_count, parsed_link_count, endpoint_count) " +
+    "VALUES (1, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET sources_checked_at=excluded.sources_checked_at, " +
+    "source_hash=excluded.source_hash, source_count=excluded.source_count, parsed_link_count=excluded.parsed_link_count, endpoint_count=excluded.endpoint_count"
+  ).bind(checkedAt, sourceHash, loaded.length, parsedLinkCount, Number(totalEndpoints?.count || 0)).run();
 
   return {
-    changed: true,
-    targetCount: checked.length,
-    onlineCount: checked.filter(item => item.status === "online").length,
     sourceCount: loaded.length,
+    failedSourceCount: sourceResults.length - loaded.length,
+    parsedLinkCount,
+    endpointCount: Number(totalEndpoints?.count || 0),
     checkedAt
   };
 }
 
-async function runLockedProxyRefresh(env) {
+async function updateProxySourceHealthCounts(env) {
+  const cutoff = new Date(Date.now() - PROXY_CACHE_MAX_AGE_MS).toISOString();
+  const aggregates = await env.DB.prepare(
+    "SELECT l.source AS source, COUNT(DISTINCT l.proxy_url) AS parsedCount, " +
+    "COUNT(DISTINCT CASE WHEN c.checked_at >= ? THEN l.server || '|' || l.port END) AS checkedCount, " +
+    "COUNT(DISTINCT CASE WHEN c.status='online' AND c.checked_at >= ? THEN l.server || '|' || l.port END) AS onlineCount, " +
+    "COUNT(DISTINCT CASE WHEN c.status='offline' AND c.checked_at >= ? THEN l.server || '|' || l.port END) AS offlineCount " +
+    "FROM proxy_catalog_links l LEFT JOIN proxy_status_cache c ON c.server=l.server AND c.port=l.port GROUP BY l.source"
+  ).bind(cutoff, cutoff, cutoff).all();
+
+  const writes = (aggregates.results || []).map(item => env.DB.prepare(
+    "UPDATE proxy_source_health SET parsed_count=?, checked_count=?, online_count=?, offline_count=? WHERE source=?"
+  ).bind(Number(item.parsedCount || 0), Number(item.checkedCount || 0), Number(item.onlineCount || 0),
+    Number(item.offlineCount || 0), item.source));
+  await runDbBatch(env, writes, 40);
+}
+
+async function processProxyProbeBatch(env) {
+  const now = new Date().toISOString();
+  const due = await env.DB.prepare(
+    "SELECT server, port FROM proxy_probe_queue WHERE next_check_at <= ? ORDER BY next_check_at, queued_at, server LIMIT ?"
+  ).bind(now, MAX_PROXY_TARGETS).all();
+  const targets = (due.results || []).map(item => ({ server: item.server, port: Number(item.port) }));
+  if (!targets.length) {
+    const counts = await env.DB.prepare("SELECT COUNT(*) AS total FROM proxy_probe_queue").first();
+    return { checkedCount: 0, onlineCount: 0, offlineCount: 0, targetCount: Number(counts?.total || 0), checkedAt: null };
+  }
+
+  const checked = await probeTcpTargets(targets);
+  const checkedAt = new Date().toISOString();
+  const nextCheckAt = new Date(Date.now() + PROXY_REFRESH_INTERVAL_MS).toISOString();
+  const writes = [];
+  for (const result of checked) {
+    writes.push(env.DB.prepare(
+      "INSERT INTO proxy_status_cache (server, port, status, latency_ms, checked_at) VALUES (?, ?, ?, ?, ?) " +
+      "ON CONFLICT(server, port) DO UPDATE SET status=excluded.status, latency_ms=excluded.latency_ms, checked_at=excluded.checked_at"
+    ).bind(result.server, result.port, result.status, result.latencyMs, checkedAt));
+    writes.push(env.DB.prepare(
+      "UPDATE proxy_probe_queue SET checked_at=?, next_check_at=? WHERE server=? AND port=?"
+    ).bind(checkedAt, nextCheckAt, result.server, result.port));
+  }
+  await runDbBatch(env, writes, 40);
+
+  const sourceMeta = await env.DB.prepare("SELECT source_hash FROM proxy_catalog_meta WHERE id=1").first();
+  const totals = await env.DB.prepare("SELECT COUNT(*) AS count FROM proxy_probe_queue").first();
+  await env.DB.prepare(
+    "INSERT INTO proxy_status_meta (id, feed_hash, checked_at, target_count) VALUES (1, ?, ?, ?) " +
+    "ON CONFLICT(id) DO UPDATE SET feed_hash=excluded.feed_hash, checked_at=excluded.checked_at, target_count=excluded.target_count"
+  ).bind(sourceMeta?.source_hash || "", checkedAt, Number(totals?.count || 0)).run();
+
+  await updateProxySourceHealthCounts(env);
+  return {
+    checkedCount: checked.length,
+    onlineCount: checked.filter(item => item.status === "online").length,
+    offlineCount: checked.filter(item => item.status === "offline").length,
+    targetCount: Number(totals?.count || 0),
+    checkedAt
+  };
+}
+
+async function refreshProxyCatalog(env, forceSourceSync = false) {
+  if (!env.DB) throw new Error("D1 binding DB is not configured");
+  const sourceMeta = await env.DB.prepare(
+    "SELECT sources_checked_at FROM proxy_catalog_meta WHERE id=1"
+  ).first();
+  const sourceCheckedAt = sourceMeta?.sources_checked_at ? Date.parse(sourceMeta.sources_checked_at) : NaN;
+  let sourceResult = null;
+
+  if (forceSourceSync || !Number.isFinite(sourceCheckedAt) || Date.now() - sourceCheckedAt >= PROXY_REFRESH_INTERVAL_MS) {
+    sourceResult = await syncProxySources(env);
+  }
+
+  const batchResult = await processProxyProbeBatch(env);
+  return {
+    changed: Boolean(sourceResult || batchResult.checkedCount),
+    sourceCount: sourceResult?.sourceCount || 0,
+    failedSourceCount: sourceResult?.failedSourceCount || 0,
+    parsedLinkCount: sourceResult?.parsedLinkCount || 0,
+    checkedCount: batchResult.checkedCount,
+    targetCount: batchResult.targetCount,
+    onlineCount: batchResult.onlineCount,
+    offlineCount: batchResult.offlineCount,
+    checkedAt: batchResult.checkedAt || new Date().toISOString()
+  };
+}
+
+async function runLockedProxyRefresh(env, forceSourceSync = false) {
   const startedAt = new Date().toISOString();
   const staleBefore = new Date(Date.now() - 10 * 60 * 1000).toISOString();
   const lock = await env.DB.prepare(
@@ -372,49 +446,27 @@ async function runLockedProxyRefresh(env) {
   ).bind(startedAt, staleBefore).run();
   if (Number(lock.meta?.changes || 0) !== 1) return { skipped: true };
   try {
-    return await refreshProxyStatusCache(env);
+    return await refreshProxyCatalog(env, forceSourceSync);
   } finally {
     await env.DB.prepare("DELETE FROM proxy_refresh_lock WHERE id=1 AND started_at=?").bind(startedAt).run();
   }
 }
 
 async function getVerifiedProxyFeed(env, ctx) {
-  const pendingMessage = "Каталог прокси обновляется. Страница сайта проверит результат автоматически.\n";
-  if (!env.DB) return new Response("База каталога пока недоступна.\n", { status: 503, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
-
-  const lock = await env.DB.prepare("SELECT started_at FROM proxy_refresh_lock WHERE id=1").first();
-  const lockStartedAt = lock?.started_at ? Date.parse(lock.started_at) : NaN;
-  const refreshInProgress = Number.isFinite(lockStartedAt) && Date.now() - lockStartedAt < 10 * 60 * 1000;
-  const meta = await env.DB.prepare("SELECT checked_at FROM proxy_status_meta WHERE id=1").first();
-  const checkedAt = meta?.checked_at ? Date.parse(meta.checked_at) : NaN;
-  // A previous deployment may leave status rows but no proxy_links rows.
-  // In that case the feed is empty even though proxy_status_meta looks fresh.
-  const feedRows = await env.DB.prepare(
-    "SELECT l.proxy_url FROM proxy_links l JOIN proxy_status_cache c ON c.server=l.server AND c.port=l.port " +
-    "WHERE c.status='online' AND c.checked_at=? ORDER BY COALESCE(c.latency_ms,2147483647)"
-  ).bind(meta?.checked_at || "").all();
-  const hasPublishedProxies = (feedRows.results || []).length > 0;
-
-  if (refreshInProgress) {
-    return new Response(pendingMessage, {
-      status: 503,
+  const response = await getVerifiedProxyCatalog(env, ctx);
+  if (!response.ok) {
+    return new Response("Каталог прокси обновляется.\n", {
+      status: response.status,
       headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "X-Proxy-Refresh": "pending" }
     });
   }
-
-  if (!Number.isFinite(checkedAt) || Date.now() - checkedAt > PROXY_CACHE_MAX_AGE_MS || !hasPublishedProxies) {
-    if (ctx?.waitUntil) ctx.waitUntil(runLockedProxyRefresh(env).catch(error => console.error("Proxy refresh failed:", error)));
-    return new Response(pendingMessage, {
-      status: 503,
-      headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "X-Proxy-Refresh": "pending" }
-    });
-  }
-  return new Response((feedRows.results || []).map(row => row.proxy_url).join("\n"), {
+  const payload = await response.json();
+  return new Response((payload.proxies || []).join("\n"), {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-store",
-      "X-Proxy-Count": String(feedRows.results?.length || 0),
-      "X-Proxy-Checked-At": meta.checked_at
+      "X-Proxy-Count": String(payload.count || 0),
+      "X-Proxy-Checked-At": payload.checkedAt || ""
     }
   });
 }
