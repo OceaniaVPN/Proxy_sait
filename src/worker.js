@@ -11,7 +11,15 @@ const VALID_SEASONS = new Set(["spring", "summer", "autumn", "winter"]);
 const COOKIE_NAME = "steklovpn_admin";
 const SESSION_SECONDS = 8 * 60 * 60;
 const encoder = new TextEncoder();
-const TCP_PROBE_VERSION = "v2";
+const TCP_PROBE_VERSION = "v3";
+const PROXY_REFRESH_INTERVAL_MS = 5 * 60 * 60 * 1000;
+const PROXY_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+const MAX_PROXY_TARGETS = 240;
+const MAX_PROXY_SOURCE_BYTES = 512 * 1024;
+const PROXY_SOURCES = [
+  { name: "iwizard7/MTProxy_list:working", url: "https://raw.githubusercontent.com/iwizard7/MTProxy_list/data/proxies/working.txt" },
+  { name: "0xRadikal/Free-Telegram-Proxy:fast", url: "https://raw.githubusercontent.com/0xRadikal/Free-Telegram-Proxy/main/fast/tg.txt" }
+];
 
 function json(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
@@ -207,38 +215,164 @@ async function hashProxyFeed(feed) {
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
+function extractTelegramProxyLinks(feed, sourceName) {
+  const links = new Map();
+  const pattern = /(?:tg:\/\/proxy\?[^\s"'<>]+|https?:\/\/t\.me\/proxy\?[^\s"'<>]+)/gi;
+  for (const rawLine of feed.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#") || line.startsWith("//")) continue;
+    for (let candidate of (line.match(pattern) || [])) {
+      candidate = candidate.replace(/[),.;\]}]+$/g, "");
+      try {
+        const parsed = new URL(candidate);
+        const valid = (parsed.protocol === "tg:" && parsed.hostname.toLowerCase() === "proxy")
+          || (parsed.protocol === "https:" && parsed.hostname.toLowerCase() === "t.me" && parsed.pathname.toLowerCase() === "/proxy");
+        if (!valid) continue;
+        const server = (parsed.searchParams.get("server") || "").trim();
+        const port = Number(parsed.searchParams.get("port"));
+        const secret = parsed.searchParams.get("secret") || "";
+        if (!server || server.length > 253 || !Number.isInteger(port) || port < 1 || port > 65535
+          || secret.length < 16 || secret.length > 512) continue;
+        const target = { server, port, url: parsed.toString(), source: sourceName };
+        const key = proxyTargetKey(server, port);
+        if (!links.has(key)) links.set(key, target);
+      } catch (_) {}
+    }
+  }
+  return links;
+}
+
+async function fetchProxySource(source) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(source.url, {
+      headers: { "Accept": "text/plain" },
+      redirect: "follow",
+      signal: controller.signal
+    });
+    if (!response.ok) throw new Error("HTTP " + response.status);
+    const feed = await response.text();
+    if (feed.length > MAX_PROXY_SOURCE_BYTES) throw new Error("Source feed too large");
+    return feed;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function refreshProxyStatusCache(env) {
   if (!env.DB) throw new Error("D1 binding DB is not configured");
-  const feed = await getProxyFeed();
-  const feedHash = await hashProxyFeed(feed);
-  const saved = await env.DB.prepare(
-    "SELECT feed_hash FROM proxy_status_meta WHERE id = 1"
-  ).first();
+  const previous = await env.DB.prepare("SELECT server, port, proxy_url, source FROM proxy_links").all();
 
-  // Re-check even when the upstream list is unchanged: proxies can stop working between publishes.
+  const loaded = (await Promise.all(PROXY_SOURCES.map(async source => {
+    try {
+      const feed = await fetchProxySource(source);
+      const links = extractTelegramProxyLinks(feed, source.name);
+      if (!links.size) throw new Error("No valid MTProto links");
+      return { source, feed, links };
+    } catch (error) {
+      console.warn("Proxy source failed:", source.name, error?.message || String(error));
+      return null;
+    }
+  }))).filter(Boolean);
 
-  const targets = Array.from(extractAllowedProxyTargets(feed).values());
-  if (!targets.length) throw new Error("No MTProto proxy candidates; previous cache is preserved");
-  const checked = await probeTcpTargets(targets);
-  const onlineCount = checked.filter(item => item.status === "online").length;
-  if (!onlineCount) throw new Error("No candidate passed the local reachability check; previous cache is preserved");
+  if (!loaded.length) throw new Error("All proxy sources failed; existing catalog kept");
+  const loadedNames = new Set(loaded.map(item => item.source.name));
+  const failedNames = new Set(PROXY_SOURCES.filter(item => !loadedNames.has(item.name)).map(item => item.name));
+  const candidates = new Map();
+
+  for (const item of loaded) {
+    for (const [key, link] of item.links) {
+      if (!candidates.has(key)) candidates.set(key, link);
+      if (candidates.size >= MAX_PROXY_TARGETS) break;
+    }
+    if (candidates.size >= MAX_PROXY_TARGETS) break;
+  }
+
+  for (const row of (previous.results || [])) {
+    const key = proxyTargetKey(row.server, row.port);
+    if (failedNames.has(row.source) && !candidates.has(key) && candidates.size < MAX_PROXY_TARGETS) {
+      candidates.set(key, { server: row.server, port: Number(row.port), url: row.proxy_url, source: row.source });
+    }
+  }
+
+  const selected = Array.from(candidates.values()).slice(0, MAX_PROXY_TARGETS);
+  if (!selected.length) throw new Error("No MTProto proxies found");
+  const checked = await probeTcpTargets(selected.map(item => ({ server: item.server, port: item.port })));
   const checkedAt = new Date().toISOString();
 
-  await env.DB.prepare("DELETE FROM proxy_status_cache").run();
-  for (let offset = 0; offset < checked.length; offset += 40) {
-    const batch = checked.slice(offset, offset + 40).map(item =>
-      env.DB.prepare(
-        "INSERT INTO proxy_status_cache (server, port, status, latency_ms, checked_at) VALUES (?, ?, ?, ?, ?)"
-      ).bind(item.server, item.port, item.status, item.latencyMs, checkedAt)
-    );
-    if (batch.length) await env.DB.batch(batch);
+  for (let offset = 0; offset < checked.length; offset += 30) {
+    const batch = [];
+    for (let i = offset; i < Math.min(offset + 30, checked.length); i++) {
+      const link = selected[i], status = checked[i];
+      batch.push(env.DB.prepare(
+        "INSERT INTO proxy_links (server, port, proxy_url, source) VALUES (?, ?, ?, ?) " +
+        "ON CONFLICT(server, port) DO UPDATE SET proxy_url=excluded.proxy_url, source=excluded.source"
+      ).bind(link.server, link.port, link.url, link.source));
+      batch.push(env.DB.prepare(
+        "INSERT INTO proxy_status_cache (server, port, status, latency_ms, checked_at) VALUES (?, ?, ?, ?, ?) " +
+        "ON CONFLICT(server, port) DO UPDATE SET status=excluded.status, latency_ms=excluded.latency_ms, checked_at=excluded.checked_at"
+      ).bind(status.server, status.port, status.status, status.latencyMs, checkedAt));
+    }
+    await env.DB.batch(batch);
   }
 
   await env.DB.prepare(
-    "INSERT INTO proxy_status_meta (id, feed_hash, checked_at, target_count) VALUES (1, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET feed_hash = excluded.feed_hash, checked_at = excluded.checked_at, target_count = excluded.target_count"
+    "DELETE FROM proxy_links WHERE NOT EXISTS (SELECT 1 FROM proxy_status_cache c WHERE c.server=proxy_links.server AND c.port=proxy_links.port AND c.checked_at=?)"
+  ).bind(checkedAt).run();
+  await env.DB.prepare("DELETE FROM proxy_status_cache WHERE checked_at <> ?").bind(checkedAt).run();
+
+  const fingerprint = loaded.map(item => item.source.url + "\n" + item.feed).join("\n---\n");
+  const feedHash = await hashProxyFeed(fingerprint);
+  await env.DB.prepare(
+    "INSERT INTO proxy_status_meta (id, feed_hash, checked_at, target_count) VALUES (1, ?, ?, ?) " +
+    "ON CONFLICT(id) DO UPDATE SET feed_hash=excluded.feed_hash, checked_at=excluded.checked_at, target_count=excluded.target_count"
   ).bind(feedHash, checkedAt, checked.length).run();
 
-  return { changed: true, targetCount: checked.length, onlineCount, checkedAt };
+  return {
+    changed: true,
+    targetCount: checked.length,
+    onlineCount: checked.filter(item => item.status === "online").length,
+    sourceCount: loaded.length,
+    checkedAt
+  };
+}
+
+async function runLockedProxyRefresh(env) {
+  const startedAt = new Date().toISOString();
+  const staleBefore = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const lock = await env.DB.prepare(
+    "INSERT INTO proxy_refresh_lock (id, started_at) VALUES (1, ?) " +
+    "ON CONFLICT(id) DO UPDATE SET started_at=excluded.started_at WHERE proxy_refresh_lock.started_at < ?"
+  ).bind(startedAt, staleBefore).run();
+  if (Number(lock.meta?.changes || 0) !== 1) return { skipped: true };
+  try {
+    return await refreshProxyStatusCache(env);
+  } finally {
+    await env.DB.prepare("DELETE FROM proxy_refresh_lock WHERE id=1 AND started_at=?").bind(startedAt).run();
+  }
+}
+
+async function getVerifiedProxyFeed(env, ctx) {
+  if (!env.DB) return new Response("", { status: 503, headers: { "Cache-Control": "no-store" } });
+  const meta = await env.DB.prepare("SELECT checked_at FROM proxy_status_meta WHERE id=1").first();
+  const checkedAt = meta?.checked_at ? Date.parse(meta.checked_at) : NaN;
+  if (!Number.isFinite(checkedAt) || Date.now() - checkedAt > PROXY_CACHE_MAX_AGE_MS) {
+    if (ctx?.waitUntil) ctx.waitUntil(runLockedProxyRefresh(env).catch(error => console.error("Proxy refresh failed:", error)));
+    return new Response("", { status: 503, headers: { "Cache-Control": "no-store", "X-Proxy-Refresh": "pending" } });
+  }
+  const rows = await env.DB.prepare(
+    "SELECT l.proxy_url FROM proxy_links l JOIN proxy_status_cache c ON c.server=l.server AND c.port=l.port " +
+    "WHERE c.status='online' AND c.checked_at=? ORDER BY COALESCE(c.latency_ms,2147483647)"
+  ).bind(meta.checked_at).all();
+  return new Response((rows.results || []).map(row => row.proxy_url).join("\n"), {
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Proxy-Count": String(rows.results?.length || 0),
+      "X-Proxy-Checked-At": meta.checked_at
+    }
+  });
 }
 
 async function getCachedProxyStatuses(env) {
@@ -275,18 +409,10 @@ async function handleProxyStatus(request, env, url) {
     return json({ error: "Некорректный список серверов." }, 400);
   }
 
-  let feedResponse;
-  try {
-    feedResponse = await env.ASSETS.fetch(new Request(new URL("/proxies.txt", url), {
-      method: "GET",
-      headers: { "Accept": "text/plain" }
-    }));
-  } catch (_) {
-    return json({ error: "Не удалось получить список серверов." }, 503);
-  }
-  if (!feedResponse.ok) return json({ error: "Не удалось получить список серверов." }, 503);
-
-  const allowed = extractAllowedProxyTargets(await feedResponse.text());
+  const catalogRows = await env.DB.prepare("SELECT server, port FROM proxy_links").all();
+  const allowed = new Map((catalogRows.results || []).map(item => [
+    proxyTargetKey(item.server, item.port), { server: item.server, port: Number(item.port) }
+  ]));
   const requested = new Map();
   const unverified = [];
   for (const item of body.targets) {
@@ -391,7 +517,7 @@ async function handleApi(request, env, url) {
   return null;
 }
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.protocol !== "https:") {
       url.protocol = "https:";
@@ -406,6 +532,8 @@ export default {
         } else {
           response = await handleApi(request, env, url);
         }
+      } else if (request.method === "GET" && url.pathname === "/proxies.txt") {
+        response = await getVerifiedProxyFeed(env, ctx);
       } else if (request.method === "GET" || request.method === "HEAD") {
         response = env.ASSETS ? await env.ASSETS.fetch(request) : new Response("Assets binding is not configured.", { status: 503 });
       } else {
@@ -434,10 +562,13 @@ export default {
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   },
   async scheduled(controller, env) {
-    // Await the job so Cron reports failures instead of silently swallowing them.
-    const result = await refreshProxyStatusCache(env);
+    if (!env.DB) throw new Error("D1 binding DB is not configured");
+    const meta = await env.DB.prepare("SELECT checked_at FROM proxy_status_meta WHERE id=1").first();
+    const last = meta?.checked_at ? Date.parse(meta.checked_at) : NaN;
+    if (Number.isFinite(last) && Date.now() - last < PROXY_REFRESH_INTERVAL_MS) return;
+    const result = await runLockedProxyRefresh(env);
     if (result.changed) {
-      console.log("Proxy status cache refreshed:", result.targetCount, result.checkedAt);
+      console.log("Proxy catalog refreshed:", result.onlineCount + "/" + result.targetCount + " online", "sources=" + result.sourceCount, result.checkedAt);
     }
   }
 };
