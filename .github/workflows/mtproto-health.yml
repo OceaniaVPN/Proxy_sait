@@ -48,8 +48,6 @@ jobs:
 
       - name: Publish snapshot to the isolated proxy-health branch
         shell: bash
-        env:
-          GH_TOKEN: \${{ github.token }}
         run: |
           cp "$RUNNER_TEMP/mtproto-status.json" /tmp/mtproto-status.json
           git config user.name "github-actions[bot]"
