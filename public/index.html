@@ -604,7 +604,7 @@
             seen.add(normalized);
             links.push({
               url: normalized, name: server + (port ? ':' + port : ''), protocol,
-              server: server.trim(), port, pingStatus: 'online', latencyMs: null
+              server: server.trim(), port, pingStatus: 'unknown', latencyMs: null
             });
           } catch (_) { /* Пропускаем некорректные строки. */ }
         }
@@ -640,12 +640,14 @@
       const caption = document.createElement('div');
       const pingStatus = proxy.pingStatus || 'checking';
       caption.className = 'server-caption server-status status-' + pingStatus;
+      const latency = proxy.latencyMs !== null && proxy.latencyMs !== undefined
+        && Number.isFinite(Number(proxy.latencyMs)) ? Math.round(Number(proxy.latencyMs)) : null;
       caption.textContent = pingStatus === 'online'
-        ? (proxy.latencyMs ? 'TCP ПОРТ ОТВЕЧАЕТ · ' + proxy.latencyMs + ' МС' : 'TCP ПОРТ ОТВЕЧАЕТ')
+        ? (latency !== null ? 'TCP-ПИНГ · ' + latency + ' МС' : 'TCP ДОСТУПЕН · НЕТ ЗАМЕРА')
         : pingStatus === 'offline' ? 'TCP НЕТ ОТВЕТА'
         : pingStatus === 'unknown' ? 'НЕТ ДАННЫХ ДЛЯ TCP-ПРОВЕРКИ'
         : 'ПРОВЕРЯЕМ TCP…';
-      caption.title = 'Измеряется время установки TCP-соединения. Это не гарантирует работу самого прокси в Telegram.';
+      caption.title = 'Время установки TCP-соединения от Cloudflare Worker до сервера. Это не ICMP-пинг и не задержка от устройства посетителя; успешный TCP connect не подтверждает работу MTProto.';
 
       const bottom = document.createElement('div');
       bottom.className = 'card-bottom';
@@ -720,7 +722,7 @@
       const tcpChecking = proxies.filter(proxy => proxy.pingStatus === 'checking').length;
       const tcpUnknown = proxies.filter(proxy => proxy.pingStatus === 'unknown').length;
       $('#results-label').innerHTML = '<strong>' + filtered.length + '</strong> из <strong>' + proxies.length
-        + '</strong> серверов · TCP: <strong>' + tcpOnline + '</strong> отвечают · <strong>' + tcpOffline
+        + '</strong> серверов · TCP-проверка: <strong>' + tcpOnline + '</strong> отвечают · <strong>' + tcpOffline
         + '</strong> без ответа · <strong>' + tcpChecking + '</strong> проверяются'
         + (tcpUnknown ? ' · <strong>' + tcpUnknown + '</strong> без проверки' : '');
 
@@ -820,7 +822,7 @@
           const timeLabel = Number.isNaN(checkedDate.getTime())
             ? '' : ' · проверено ' + checkedDate.toLocaleTimeString();
           $('#results-label').dataset.statusCheckedAt = data.checkedAt;
-          $('#results-label').title = 'Результаты фоновой TCP-проверки' + timeLabel;
+          $('#results-label').title = 'Результаты фоновой TCP-проверки от Cloudflare Worker до серверов' + timeLabel;
         }
       } catch (_) {
         snapshot.forEach(proxy => {
@@ -874,7 +876,7 @@
         const payload = await response.json();
         if (!Array.isArray(payload?.proxies)) return;
         proxies = extractProxyLinks(payload.proxies.join('\n'));
-        render();
+        await checkProxyStatuses(proxies);
         const progress = catalogProgressText(payload);
         $('#results-label').textContent = proxies.length
           ? 'Рабочих серверов: ' + proxies.length + progress
@@ -932,7 +934,7 @@
           if (!Array.isArray(payload?.proxies)) throw new Error('INVALID_FEED_FORMAT');
           proxies = extractProxyLinks(payload.proxies.join('\n'));
           if (Number(payload.count || 0) > 0 && proxies.length === 0) throw new Error('FEED_PARSE_EMPTY');
-          render();
+          await checkProxyStatuses(proxies);
 
           if (!proxies.length) {
             $('#results-label').textContent = 'Проверка завершена · сейчас нет доступных серверов';
