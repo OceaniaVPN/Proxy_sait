@@ -20,6 +20,7 @@ CREATE INDEX IF NOT EXISTS proxy_mtproto_status_state_idx
 CREATE TABLE IF NOT EXISTS proxy_mtproto_meta (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   checked_at TEXT,
+  attempted_at TEXT,
   source_count INTEGER NOT NULL DEFAULT 0,
   discovered_links INTEGER NOT NULL DEFAULT 0,
   checked_count INTEGER NOT NULL DEFAULT 0,
