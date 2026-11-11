@@ -612,6 +612,22 @@
       return links;
     }
 
+    function mtprotoLinkIdentity(value) {
+      const url = new URL(value);
+      const server = (url.searchParams.get('server') || '').trim().toLowerCase();
+      const port = String(Number(url.searchParams.get('port') || url.port || 0));
+      const secret = url.searchParams.get('secret') || '';
+      if (!server || !Number.isInteger(Number(port)) || Number(port) < 1 || Number(port) > 65535 || !secret) {
+        throw new Error('Некорректная MTProto-ссылка');
+      }
+      return ['proxy', server, port, secret].join('|');
+    }
+
+    async function mtprotoLinkKey(value) {
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(mtprotoLinkIdentity(value)));
+      return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+    }
+
     function makeIcon(markup) {
       const template = document.createElement('template');
       template.innerHTML = markup.trim();
@@ -643,11 +659,16 @@
       const latency = proxy.latencyMs !== null && proxy.latencyMs !== undefined
         && Number.isFinite(Number(proxy.latencyMs)) ? Math.round(Number(proxy.latencyMs)) : null;
       caption.textContent = pingStatus === 'online'
-        ? (latency !== null ? 'TCP-ПИНГ · ' + latency + ' МС' : 'TCP ДОСТУПЕН · НЕТ ЗАМЕРА')
-        : pingStatus === 'offline' ? 'TCP НЕТ ОТВЕТА'
-        : pingStatus === 'unknown' ? 'НЕТ ДАННЫХ ДЛЯ TCP-ПРОВЕРКИ'
-        : 'ПРОВЕРЯЕМ TCP…';
-      caption.title = 'Время установки TCP-соединения от Cloudflare Worker до сервера. Это не ICMP-пинг и не задержка от устройства посетителя; успешный TCP connect не подтверждает работу MTProto.';
+        ? (latency !== null
+          ? (proxy.checkType === 'mtproto' ? 'MTProto + TELEGRAM · ' : 'TCP-ПИНГ · ') + latency + ' МС'
+          : (proxy.checkType === 'mtproto' ? 'MTProto ОТВЕЧАЕТ · НЕТ ЗАМЕРА' : 'TCP ДОСТУПЕН · НЕТ ЗАМЕРА'))
+        : pingStatus === 'offline'
+          ? (proxy.checkType === 'mtproto' ? 'MTProto НЕ ОТВЕТИЛ' : 'TCP НЕТ ОТВЕТА')
+          : pingStatus === 'unknown' ? 'НЕТ ДАННЫХ ДЛЯ ПРОВЕРКИ'
+          : 'ПРОВЕРЯЕМ…';
+      caption.title = proxy.checkType === 'mtproto'
+        ? 'Полная проверка: MTProto-handshake и запрос HelpGetNearestDC к Telegram. Время измерено от сервера проверки до ответа Telegram.'
+        : 'Время установки TCP-соединения от Cloudflare Worker до сервера. Это не ICMP-пинг и не задержка от устройства посетителя.';
 
       const bottom = document.createElement('div');
       bottom.className = 'card-bottom';
@@ -717,14 +738,15 @@
       $('#filter-mtproto').textContent = String(count('MTProto'));
       $('#filter-socks').textContent = String(count('SOCKS5 (TG)'));
       $('#filter-web').textContent = String(count('WEB (TG)'));
-      const tcpOnline = proxies.filter(proxy => proxy.pingStatus === 'online').length;
-      const tcpOffline = proxies.filter(proxy => proxy.pingStatus === 'offline').length;
+      const mtprotoOnline = proxies.filter(proxy => proxy.pingStatus === 'online' && proxy.checkType === 'mtproto').length;
+      const tcpOnline = proxies.filter(proxy => proxy.pingStatus === 'online' && proxy.checkType !== 'mtproto').length;
+      const tcpOffline = proxies.filter(proxy => proxy.pingStatus === 'offline' && proxy.checkType !== 'mtproto').length;
       const tcpChecking = proxies.filter(proxy => proxy.pingStatus === 'checking').length;
       const tcpUnknown = proxies.filter(proxy => proxy.pingStatus === 'unknown').length;
       $('#results-label').innerHTML = '<strong>' + filtered.length + '</strong> из <strong>' + proxies.length
-        + '</strong> серверов · TCP-проверка: <strong>' + tcpOnline + '</strong> отвечают · <strong>' + tcpOffline
-        + '</strong> без ответа · <strong>' + tcpChecking + '</strong> проверяются'
-        + (tcpUnknown ? ' · <strong>' + tcpUnknown + '</strong> без проверки' : '');
+        + '</strong> серверов · MTProto + Telegram: <strong>' + mtprotoOnline + '</strong> · только TCP: <strong>' + tcpOnline
+        + '</strong> · без TCP-ответа: <strong>' + tcpOffline + '</strong> · проверяются: <strong>' + tcpChecking
+        + '</strong>' + (tcpUnknown ? ' · без проверки: <strong>' + tcpUnknown + '</strong>' : '');
 
       const list = $('#proxy-list');
       list.replaceChildren();
@@ -805,8 +827,28 @@
           (Array.isArray(data.results) ? data.results : [])
             .map(item => [proxyTargetKey(item.server, item.port), item])
         );
+        const linkStatusMap = new Map(
+          (Array.isArray(data.linkResults) ? data.linkResults : [])
+            .map(item => [item.linkKey, item])
+        );
 
-        snapshot.forEach(proxy => {
+        await Promise.all(snapshot.map(async proxy => {
+          if (proxy.protocol === 'MTProto') {
+            proxy.checkType = 'mtproto';
+            const linkKey = await mtprotoLinkKey(proxy.url);
+            const exact = linkStatusMap.get(linkKey);
+            if (!exact) {
+              proxy.pingStatus = 'unknown';
+              proxy.latencyMs = null;
+              return;
+            }
+            proxy.pingStatus = ['online', 'offline'].includes(exact.status) ? exact.status : 'unknown';
+            proxy.latencyMs = Number.isFinite(Number(exact.latencyMs)) ? Number(exact.latencyMs) : null;
+            proxy.deepCheckedAt = exact.checkedAt || null;
+            return;
+          }
+
+          proxy.checkType = 'tcp';
           const cached = statusMap.get(proxyTargetKey(proxy.server, proxy.port));
           if (!cached) {
             proxy.pingStatus = 'unknown';
@@ -815,7 +857,7 @@
           }
           proxy.pingStatus = ['online', 'offline'].includes(cached.status) ? cached.status : 'unknown';
           proxy.latencyMs = Number.isFinite(cached.latencyMs) ? cached.latencyMs : null;
-        });
+        }));
 
         if (data.checkedAt) {
           const checkedDate = new Date(data.checkedAt);
@@ -858,8 +900,13 @@
     function catalogProgressText(payload) {
       const p = payload && payload.progress;
       if (!p || !Number.isFinite(Number(p.totalEndpoints))) return '';
-      return ' · проверено ' + Number(p.checkedRecently || 0) + '/' + Number(p.totalEndpoints || 0)
-        + ', в очереди ' + Number(p.pendingChecks || 0);
+      const mtproto = payload.mtproto;
+      const deepText = mtproto
+        ? ' · MTProto: ' + Number(mtproto.workingCount || 0) + '/' + Number(mtproto.checkedCount || 0) + ' подтверждены Telegram'
+        : '';
+      const deepPending = mtproto?.pending ? ' · глубокая проверка обновляется' : '';
+      return ' · TCP: ' + Number(p.checkedRecently || 0) + '/' + Number(p.totalEndpoints || 0)
+        + ', в очереди ' + Number(p.pendingChecks || 0) + deepText + deepPending;
     }
 
     async function refreshCatalogSilently() {
@@ -937,8 +984,13 @@
           await checkProxyStatuses(proxies);
 
           if (!proxies.length) {
-            $('#results-label').textContent = 'Проверка завершена · сейчас нет доступных серверов';
-            showToast('Проверка завершена · рабочих серверов пока нет');
+            if (payload.mtproto?.pending) {
+              $('#results-label').textContent = 'Ожидаем результаты глубокой проверки MTProto' + catalogProgressText(payload);
+              showToast('Глубокая проверка MTProto ещё выполняется');
+            } else {
+              $('#results-label').textContent = 'Проверка завершена · сейчас нет доступных серверов';
+              showToast('Проверка завершена · рабочих серверов пока нет');
+            }
           } else {
             $('#results-label').textContent = `Найдено рабочих серверов · ${proxies.length}${catalogProgressText(payload)}`;
             showToast(`Каталог обновлён · ${proxies.length} серверов`);
