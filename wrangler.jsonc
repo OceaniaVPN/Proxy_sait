@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "proxy-sait",
+  "cache": { "enabled": true },
   "triggers": {
     // Check the D1 timestamp each minute; download and probe sources only after five hours.
     "crons": ["* * * * *"]
