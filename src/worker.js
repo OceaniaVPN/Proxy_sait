@@ -17,7 +17,7 @@ const PROXY_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const MAX_PROXY_TARGETS = 48; // Maximum endpoints in one probe batch, not a catalog limit.
 const MAX_PROXY_SOURCE_BYTES = 512 * 1024;
 const MT_PROTO_HEALTH_URL = "https://raw.githubusercontent.com/OceaniaVPN/Proxy_sait/proxy-health/mtproto-status.json";
-const MT_PROTO_SYNC_RETRY_MS = 60 * 60 * 1000;
+const MT_PROTO_SYNC_RETRY_MS = 6 * 60 * 60 * 1000;
 const MT_PROTO_HEALTH_MAX_AGE_MS = 8 * 60 * 60 * 1000;
 const PROXY_SOURCES = [
   { name: "OceaniaVPN/Proxy_sait:public/proxies.txt", url: "https://raw.githubusercontent.com/OceaniaVPN/Proxy_sait/main/public/proxies.txt" },
@@ -289,21 +289,26 @@ async function syncProxySources(env) {
         linkStatements.push(env.DB.prepare(
           "INSERT INTO proxy_catalog_links (link_id, server, port, proxy_url, source, first_seen_at, last_seen_at) " +
           "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(link_id) DO UPDATE SET " +
-          "server=excluded.server, port=excluded.port, proxy_url=excluded.proxy_url, source=excluded.source, last_seen_at=excluded.last_seen_at"
-        ).bind(linkId, link.server, link.port, link.url, item.source.name, checkedAt, checkedAt));
+          "server=excluded.server, port=excluded.port, proxy_url=excluded.proxy_url, source=excluded.source, last_seen_at=excluded.last_seen_at " +
+          "WHERE proxy_catalog_links.server IS NOT excluded.server OR proxy_catalog_links.port IS NOT excluded.port " +
+          "OR proxy_catalog_links.proxy_url IS NOT excluded.proxy_url OR proxy_catalog_links.source IS NOT excluded.source " +
+          "OR proxy_catalog_links.last_seen_at < ?"
+        ).bind(linkId, link.server, link.port, link.url, item.source.name, checkedAt, checkedAt,
+          new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()));
 
         const endpointKey = proxyTargetKey(link.server, link.port);
         if (!queueStatements.has(endpointKey)) {
           queueStatements.set(endpointKey, env.DB.prepare(
             "INSERT INTO proxy_probe_queue (server, port, queued_at, checked_at, next_check_at) VALUES (?, ?, ?, NULL, ?) " +
-            "ON CONFLICT(server, port) DO UPDATE SET next_check_at=excluded.next_check_at"
+            "ON CONFLICT(server, port) DO NOTHING"
           ).bind(link.server, link.port, checkedAt, checkedAt));
         }
         // Keep one compatibility row per host:port for older API paths.
         if (!legacyStatements.has(endpointKey)) {
           legacyStatements.set(endpointKey, env.DB.prepare(
             "INSERT INTO proxy_links (server, port, proxy_url, source) VALUES (?, ?, ?, ?) " +
-            "ON CONFLICT(server, port) DO UPDATE SET proxy_url=excluded.proxy_url, source=excluded.source"
+            "ON CONFLICT(server, port) DO UPDATE SET proxy_url=excluded.proxy_url, source=excluded.source " +
+            "WHERE proxy_links.proxy_url IS NOT excluded.proxy_url OR proxy_links.source IS NOT excluded.source"
           ).bind(link.server, link.port, link.url, item.source.name));
         }
       }
@@ -478,21 +483,16 @@ async function syncMtprotoHealth(env, force = false) {
   }
 }
 
-async function updateProxySourceHealthCounts(env) {
-  const cutoff = new Date(Date.now() - PROXY_CACHE_MAX_AGE_MS).toISOString();
-  const aggregates = await env.DB.prepare(
-    "SELECT l.source AS source, COUNT(DISTINCT l.proxy_url) AS parsedCount, " +
-    "COUNT(DISTINCT CASE WHEN c.checked_at >= ? THEN l.server || '|' || l.port END) AS checkedCount, " +
-    "COUNT(DISTINCT CASE WHEN c.status='online' AND c.checked_at >= ? THEN l.server || '|' || l.port END) AS onlineCount, " +
-    "COUNT(DISTINCT CASE WHEN c.status='offline' AND c.checked_at >= ? THEN l.server || '|' || l.port END) AS offlineCount " +
-    "FROM proxy_catalog_links l LEFT JOIN proxy_status_cache c ON c.server=l.server AND c.port=l.port GROUP BY l.source"
-  ).bind(cutoff, cutoff, cutoff).all();
-
-  const writes = (aggregates.results || []).map(item => env.DB.prepare(
-    "UPDATE proxy_source_health SET parsed_count=?, checked_count=?, online_count=?, offline_count=? WHERE source=?"
-  ).bind(Number(item.parsedCount || 0), Number(item.checkedCount || 0), Number(item.onlineCount || 0),
-    Number(item.offlineCount || 0), item.source));
-  await runDbBatch(env, writes, 40);
+let queueStatusSchemaState = { checkedAt: 0, available: false };
+async function supportsQueueStatusColumns(env) {
+  if (Date.now() - queueStatusSchemaState.checkedAt < 60000) return queueStatusSchemaState.available;
+  try {
+    await env.DB.prepare("SELECT status, latency_ms FROM proxy_probe_queue LIMIT 0").first();
+    queueStatusSchemaState = { checkedAt: Date.now(), available: true };
+  } catch (_) {
+    queueStatusSchemaState = { checkedAt: Date.now(), available: false };
+  }
+  return queueStatusSchemaState.available;
 }
 
 async function processProxyProbeBatch(env) {
@@ -502,38 +502,48 @@ async function processProxyProbeBatch(env) {
   ).bind(now, MAX_PROXY_TARGETS).all();
   const targets = (due.results || []).map(item => ({ server: item.server, port: Number(item.port) }));
   if (!targets.length) {
-    const counts = await env.DB.prepare("SELECT COUNT(*) AS total FROM proxy_probe_queue").first();
-    return { checkedCount: 0, onlineCount: 0, offlineCount: 0, targetCount: Number(counts?.total || 0), checkedAt: null };
+    const meta = await env.DB.prepare("SELECT endpoint_count FROM proxy_catalog_meta WHERE id=1").first();
+    return { checkedCount: 0, onlineCount: 0, offlineCount: 0, targetCount: Number(meta?.endpoint_count || 0), checkedAt: null };
   }
 
   const checked = await probeTcpTargets(targets);
   const checkedAt = new Date().toISOString();
   const nextCheckAt = new Date(Date.now() + PROXY_REFRESH_INTERVAL_MS).toISOString();
+  const queueStatusColumns = await supportsQueueStatusColumns(env);
   const writes = [];
+
   for (const result of checked) {
-    writes.push(env.DB.prepare(
-      "INSERT INTO proxy_status_cache (server, port, status, latency_ms, checked_at) VALUES (?, ?, ?, ?, ?) " +
-      "ON CONFLICT(server, port) DO UPDATE SET status=excluded.status, latency_ms=excluded.latency_ms, checked_at=excluded.checked_at"
-    ).bind(result.server, result.port, result.status, result.latencyMs, checkedAt));
-    writes.push(env.DB.prepare(
-      "UPDATE proxy_probe_queue SET checked_at=?, next_check_at=? WHERE server=? AND port=?"
-    ).bind(checkedAt, nextCheckAt, result.server, result.port));
+    if (queueStatusColumns) {
+      writes.push(env.DB.prepare(
+        "UPDATE proxy_probe_queue SET checked_at=?, next_check_at=?, status=?, latency_ms=? WHERE server=? AND port=?"
+      ).bind(checkedAt, nextCheckAt, result.status, result.latencyMs, result.server, result.port));
+    } else {
+      // Backward-compatible path until migration 0007 is applied.
+      writes.push(env.DB.prepare(
+        "INSERT INTO proxy_status_cache (server, port, status, latency_ms, checked_at) VALUES (?, ?, ?, ?, ?) " +
+        "ON CONFLICT(server, port) DO UPDATE SET status=excluded.status, latency_ms=excluded.latency_ms, checked_at=excluded.checked_at"
+      ).bind(result.server, result.port, result.status, result.latencyMs, checkedAt));
+      writes.push(env.DB.prepare(
+        "UPDATE proxy_probe_queue SET checked_at=?, next_check_at=? WHERE server=? AND port=?"
+      ).bind(checkedAt, nextCheckAt, result.server, result.port));
+    }
   }
   await runDbBatch(env, writes, 40);
 
-  const sourceMeta = await env.DB.prepare("SELECT source_hash FROM proxy_catalog_meta WHERE id=1").first();
-  const totals = await env.DB.prepare("SELECT COUNT(*) AS count FROM proxy_probe_queue").first();
+  const sourceMeta = await env.DB.prepare(
+    "SELECT source_hash, endpoint_count FROM proxy_catalog_meta WHERE id=1"
+  ).first();
+  const targetCount = Number(sourceMeta?.endpoint_count || 0);
   await env.DB.prepare(
     "INSERT INTO proxy_status_meta (id, feed_hash, checked_at, target_count) VALUES (1, ?, ?, ?) " +
     "ON CONFLICT(id) DO UPDATE SET feed_hash=excluded.feed_hash, checked_at=excluded.checked_at, target_count=excluded.target_count"
-  ).bind(sourceMeta?.source_hash || "", checkedAt, Number(totals?.count || 0)).run();
+  ).bind(sourceMeta?.source_hash || "", checkedAt, targetCount).run();
 
-  await updateProxySourceHealthCounts(env);
   return {
     checkedCount: checked.length,
     onlineCount: checked.filter(item => item.status === "online").length,
     offlineCount: checked.filter(item => item.status === "offline").length,
-    targetCount: Number(totals?.count || 0),
+    targetCount,
     checkedAt
   };
 }
@@ -635,6 +645,8 @@ async function getVerifiedProxyCatalog(env, ctx) {
 
   const now = new Date().toISOString();
   const cutoff = new Date(Date.now() - PROXY_CACHE_MAX_AGE_MS).toISOString();
+  const queueStatusColumns = await supportsQueueStatusColumns(env);
+  const statusTable = queueStatusColumns ? "proxy_probe_queue" : "proxy_status_cache";
   const lock = await env.DB.prepare("SELECT started_at FROM proxy_refresh_lock WHERE id=1").first();
   const lockStartedAt = lock?.started_at ? Date.parse(lock.started_at) : NaN;
   const refreshInProgress = Number.isFinite(lockStartedAt) && Date.now() - lockStartedAt < 10 * 60 * 1000;
@@ -662,7 +674,7 @@ async function getVerifiedProxyCatalog(env, ctx) {
     env.DB.prepare("SELECT checked_at, target_count FROM proxy_status_meta WHERE id=1").first(),
     env.DB.prepare(
       "SELECT DISTINCT l.proxy_url FROM proxy_catalog_links l " +
-      "JOIN proxy_status_cache c ON c.server=l.server AND c.port=l.port " +
+      "JOIN " + statusTable + " c ON c.server=l.server AND c.port=l.port " +
       "WHERE c.status='online' AND c.checked_at >= ? AND l.last_seen_at >= ? " +
       "ORDER BY l.source, l.proxy_url"
     ).bind(cutoff, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()).all(),
@@ -747,12 +759,15 @@ async function getVerifiedProxyCatalog(env, ctx) {
 async function getCachedProxyStatuses(env) {
   if (!env.DB) return json({ error: "Database binding DB is not configured." }, 503);
   const cutoff = new Date(Date.now() - PROXY_CACHE_MAX_AGE_MS).toISOString();
+  const queueStatusColumns = await supportsQueueStatusColumns(env);
+  const statusQuery = queueStatusColumns
+    ? "SELECT server, port, status, latency_ms AS latencyMs FROM proxy_probe_queue " +
+      "WHERE checked_at >= ? AND status IS NOT NULL ORDER BY server, port"
+    : "SELECT server, port, status, latency_ms AS latencyMs FROM proxy_status_cache " +
+      "WHERE checked_at >= ? ORDER BY server, port";
   const [meta, rows, linkRows] = await Promise.all([
     env.DB.prepare("SELECT checked_at, target_count FROM proxy_status_meta WHERE id = 1").first(),
-    env.DB.prepare(
-      "SELECT server, port, status, latency_ms AS latencyMs FROM proxy_status_cache " +
-      "WHERE checked_at >= ? ORDER BY server, port"
-    ).bind(cutoff).all(),
+    env.DB.prepare(statusQuery).bind(cutoff).all(),
     env.DB.prepare(
       "SELECT link_key AS linkKey, status, latency_ms AS latencyMs, checked_at AS checkedAt " +
       "FROM proxy_mtproto_status WHERE checked_at >= ? ORDER BY checked_at DESC"
@@ -787,10 +802,12 @@ async function getHealth(env) {
   }
 
   const cutoff = new Date(Date.now() - PROXY_CACHE_MAX_AGE_MS).toISOString();
+  const queueStatusColumns = await supportsQueueStatusColumns(env);
+  const statusTable = queueStatusColumns ? "proxy_probe_queue" : "proxy_status_cache";
   const [meta, statusRows, savedSources, sourceAggregates, feedCount, lock, catalogMeta, queueStats, linkCount] = await Promise.all([
     env.DB.prepare("SELECT checked_at, target_count FROM proxy_status_meta WHERE id=1").first(),
     env.DB.prepare(
-      "SELECT status, COUNT(*) AS count FROM proxy_status_cache WHERE checked_at >= ? GROUP BY status"
+      "SELECT status, COUNT(*) AS count FROM " + statusTable + " WHERE checked_at >= ? AND status IS NOT NULL GROUP BY status"
     ).bind(cutoff).all(),
     env.DB.prepare(
       "SELECT source, url, status, http_status AS httpStatus, bytes, parsed_count AS parsedCount, " +
@@ -802,11 +819,11 @@ async function getHealth(env) {
       "COUNT(DISTINCT CASE WHEN c.checked_at >= ? THEN l.server || '|' || l.port END) AS checkedCount, " +
       "COUNT(DISTINCT CASE WHEN c.status='online' AND c.checked_at >= ? THEN l.server || '|' || l.port END) AS onlineCount, " +
       "COUNT(DISTINCT CASE WHEN c.status='offline' AND c.checked_at >= ? THEN l.server || '|' || l.port END) AS offlineCount " +
-      "FROM proxy_catalog_links l LEFT JOIN proxy_status_cache c ON c.server=l.server AND c.port=l.port GROUP BY l.source"
+      "FROM proxy_catalog_links l LEFT JOIN " + statusTable + " c ON c.server=l.server AND c.port=l.port GROUP BY l.source"
     ).bind(cutoff, cutoff, cutoff).all(),
     env.DB.prepare(
       "SELECT COUNT(DISTINCT l.server || '|' || l.port) AS count FROM proxy_catalog_links l " +
-      "JOIN proxy_status_cache c ON c.server=l.server AND c.port=l.port " +
+      "JOIN " + statusTable + " c ON c.server=l.server AND c.port=l.port " +
       "WHERE c.status='online' AND c.checked_at >= ?"
     ).bind(cutoff).first(),
     env.DB.prepare("SELECT started_at FROM proxy_refresh_lock WHERE id=1").first(),
@@ -1105,7 +1122,13 @@ export default {
 
     const headers = new Headers(response.headers);
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value);
-    if (url.pathname.startsWith("/api/") || url.pathname === "/health" || url.pathname === "/proxies.txt") {
+    const publicCacheTtl = request.method === "GET" && response.ok && !url.searchParams.has("fresh")
+      ? ({ "/api/proxies": 30, "/api/proxy-status": 30, "/api/season": 60, "/api/health": 30, "/health": 30, "/proxies.txt": 30 }[url.pathname] || 0)
+      : 0;
+    if (publicCacheTtl > 0) {
+      headers.set("Cache-Control", "public, max-age=" + publicCacheTtl + ", s-maxage=" + publicCacheTtl + ", stale-while-revalidate=" + publicCacheTtl);
+      headers.delete("Pragma");
+    } else if (url.pathname.startsWith("/api/") || url.pathname === "/health" || url.pathname === "/proxies.txt") {
       headers.set("Cache-Control", "no-store");
       headers.set("Pragma", "no-cache");
     } else if (url.pathname === "/" || url.pathname.endsWith(".html")) {
