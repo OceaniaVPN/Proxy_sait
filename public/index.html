@@ -812,12 +812,11 @@
       return String(server).trim().toLowerCase() + '|' + String(port);
     }
 
-    async function checkProxyStatuses(snapshot) {
+    async function checkProxyStatuses(snapshot, forceFresh = false) {
       // Получаем только готовые результаты из D1. Никаких TCP-проверок в запросе посетителя.
       try {
-        const response = await fetch('/api/proxy-status', {
+        const response = await fetch(forceFresh ? '/api/proxy-status?fresh=1' : '/api/proxy-status', {
           method: 'GET',
-          cache: 'no-store',
           credentials: 'same-origin',
           headers: { 'Accept': 'application/json' }
         });
@@ -915,9 +914,8 @@
       if (silentCatalogRefreshRunning || $('#refresh').disabled) return;
       silentCatalogRefreshRunning = true;
       try {
-        const response = await fetch(FEED_URL + '?_=' + Date.now(), {
+        const response = await fetch(FEED_URL, {
           method: 'GET',
-          cache: 'no-store',
           credentials: 'same-origin',
           headers: { 'Accept': 'application/json' }
         });
@@ -963,9 +961,10 @@
           }
         }
 
+        const feedUrl = forceRefresh ? `${FEED_URL}?fresh=1` : FEED_URL;
         for (let attempt = 0; attempt < 36; attempt++) {
-          const response = await fetch(`${FEED_URL}?_=${Date.now()}`, {
-            method: 'GET', cache: 'no-store', headers: { 'Accept': 'application/json' }
+          const response = await fetch(feedUrl, {
+            method: 'GET', headers: { 'Accept': 'application/json' }
           });
 
           if (response.status === 503 && response.headers.get('X-Proxy-Refresh') === 'pending') {
@@ -983,7 +982,7 @@
           if (!Array.isArray(payload?.proxies)) throw new Error('INVALID_FEED_FORMAT');
           proxies = extractProxyLinks(payload.proxies.join('\n'));
           if (Number(payload.count || 0) > 0 && proxies.length === 0) throw new Error('FEED_PARSE_EMPTY');
-          await checkProxyStatuses(proxies);
+          await checkProxyStatuses(proxies, forceRefresh);
 
           if (!proxies.length) {
             const tcpPending = Number(payload.progress?.pendingChecks || 0);
