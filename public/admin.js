@@ -250,8 +250,9 @@
     document.querySelectorAll('[data-admin-season]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.adminSeason===season)));
     if(effectKey!==season){effectKey=season;makeWeather(season);}
   }
+  const API_BASE='https://proxy-sait.novogodniysait.workers.dev';
   async function api(path,options){
-    const response=await fetch(path,{cache:'no-store',credentials:'same-origin',...options,
+    const response=await fetch(API_BASE+path,{cache:'no-store',credentials:'include',...options,
       headers:{'Accept':'application/json',...(options&&options.headers?options.headers:{})}});
     let data={};try{data=await response.json();}catch(_){}
     if(!response.ok)throw new Error(data.error||'Запрос не выполнен.');
