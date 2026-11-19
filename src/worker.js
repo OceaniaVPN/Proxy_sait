@@ -74,7 +74,22 @@ async function safeEqual(left, right) {
 function sameOrigin(request, url) {
   const origin = request.headers.get("Origin");
   if (!origin) return false;
-  try { return new URL(origin).origin === url.origin; } catch { return false; }
+  try {
+    const normalized = new URL(origin).origin;
+    return normalized === url.origin || normalized === "https://oceaniavpn.github.io";
+  } catch { return false; }
+}
+function pagesCorsHeaders(request) {
+  const origin = request.headers.get("Origin");
+  if (origin !== "https://oceaniavpn.github.io") return {};
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Accept, Content-Type",
+    "Access-Control-Max-Age": "86400",
+    "Vary": "Origin"
+  };
 }
 async function createSession(secret) {
   const expires = Math.floor(Date.now() / 1000) + SESSION_SECONDS;
@@ -92,10 +107,10 @@ async function isAdmin(request, secret) {
   return safeEqual(parts[2], await hmac(parts[0] + "." + parts[1], secret));
 }
 function sessionCookie(token) {
-  return COOKIE_NAME + "=" + token + "; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=" + SESSION_SECONDS;
+  return COOKIE_NAME + "=" + token + "; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=" + SESSION_SECONDS;
 }
 function expiredCookie() {
-  return COOKIE_NAME + "=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0";
+  return COOKIE_NAME + "=; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=0";
 }
 function proxyTargetKey(server, port) {
   return String(server).trim().toLowerCase() + "|" + String(port);
@@ -1087,6 +1102,9 @@ async function handleApi(request, env, url, ctx) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (url.pathname.startsWith("/api/") && request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: pagesCorsHeaders(request) });
+    }
     if (url.protocol !== "https:") {
       url.protocol = "https:";
       return Response.redirect(url.toString(), 301);
@@ -1122,6 +1140,9 @@ export default {
 
     const headers = new Headers(response.headers);
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value);
+    if (url.pathname.startsWith("/api/")) {
+      for (const [name, value] of Object.entries(pagesCorsHeaders(request))) headers.set(name, value);
+    }
     const publicCacheTtl = request.method === "GET" && response.ok && !url.searchParams.has("fresh")
       ? ({ "/api/proxies": 30, "/api/proxy-status": 30, "/api/season": 60, "/api/health": 30, "/health": 30, "/proxies.txt": 30 }[url.pathname] || 0)
       : 0;
