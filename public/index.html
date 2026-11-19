@@ -819,7 +819,7 @@
       try {
         const response = await fetch(apiUrl(forceFresh ? '/api/proxy-status?fresh=1' : '/api/proxy-status'), {
           method: 'GET',
-          credentials: 'include',
+          credentials: 'omit',
           headers: { 'Accept': 'application/json' }
         });
         if (!response.ok) throw new Error('Cached proxy status unavailable');
@@ -918,7 +918,7 @@
       try {
         const response = await fetch(FEED_URL, {
           method: 'GET',
-          credentials: 'include',
+          credentials: 'omit',
           headers: { 'Accept': 'application/json' }
         });
         if (!response.ok) return;
@@ -953,7 +953,7 @@
           const refreshResponse = await fetch(apiUrl('/api/proxy-refresh'), {
             method: 'POST',
             cache: 'no-store',
-            credentials: 'include',
+            credentials: 'omit',
             headers: { 'Accept': 'application/json' }
           });
           if (!refreshResponse.ok) {
