@@ -252,8 +252,11 @@
   }
   const API_BASE='https://proxy-sait.novogodniysait.workers.dev';
   async function api(path,options){
-    const response=await fetch(API_BASE+path,{cache:'no-store',credentials:'include',...options,
-      headers:{'Accept':'application/json',...(options&&options.headers?options.headers:{})}});
+    const token=sessionStorage.getItem('steklovpn_admin_token')||'';
+    const requestHeaders={'Accept':'application/json',...(options&&options.headers?options.headers:{})};
+    if(token)requestHeaders.Authorization='Bearer '+token;
+    const response=await fetch(API_BASE+path,{cache:'no-store',credentials:'omit',...options,
+      headers:requestHeaders});
     let data={};try{data=await response.json();}catch(_){}
     if(!response.ok)throw new Error(data.error||'Запрос не выполнен.');
     return data;
@@ -281,7 +284,8 @@
     event.preventDefault();const submit=loginForm.querySelector('button[type="submit"]');submit.disabled=true;
     message(loginMessage,'Проверяем пароль…',false);
     try{
-      await api('/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:passwordField.value})});
+      const loginData=await api('/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:passwordField.value})});
+      if(loginData.token)sessionStorage.setItem('steklovpn_admin_token',loginData.token);
       passwordField.value='';setAdminView(true);await refreshSeason();
       message(panelMessage,'Вход выполнен. Настройка действует на обеих страницах.',false);
     }catch(error){message(loginMessage,error.message,true);}
@@ -300,6 +304,7 @@
   const logoutButton=document.getElementById('admin-logout');
   if(logoutButton)logoutButton.addEventListener('click',async()=>{
     try{await api('/api/admin/logout',{method:'POST'});}catch(_){}
+    sessionStorage.removeItem('steklovpn_admin_token');
     setAdminView(false);message(loginMessage,'Вы вышли из профиля.',false);
   });
 
