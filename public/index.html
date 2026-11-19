@@ -552,7 +552,9 @@
 
   <script>
     // Список серверов загружается из Cloudflare Static Assets.
-    const FEED_URL = '/api/proxies';
+    const API_BASE = 'https://proxy-sait.novogodniysait.workers.dev';
+    const apiUrl = (path) => API_BASE + path;
+    const FEED_URL = apiUrl('/api/proxies');
     const $ = (selector) => document.querySelector(selector);
     let proxies = [];
     let toastTimer;
@@ -815,9 +817,9 @@
     async function checkProxyStatuses(snapshot, forceFresh = false) {
       // Получаем только готовые результаты из D1. Никаких TCP-проверок в запросе посетителя.
       try {
-        const response = await fetch(forceFresh ? '/api/proxy-status?fresh=1' : '/api/proxy-status', {
+        const response = await fetch(apiUrl(forceFresh ? '/api/proxy-status?fresh=1' : '/api/proxy-status'), {
           method: 'GET',
-          credentials: 'same-origin',
+          credentials: 'include',
           headers: { 'Accept': 'application/json' }
         });
         if (!response.ok) throw new Error('Cached proxy status unavailable');
@@ -916,7 +918,7 @@
       try {
         const response = await fetch(FEED_URL, {
           method: 'GET',
-          credentials: 'same-origin',
+          credentials: 'include',
           headers: { 'Accept': 'application/json' }
         });
         if (!response.ok) return;
@@ -948,10 +950,10 @@
 
       try {
         if (forceRefresh) {
-          const refreshResponse = await fetch('/api/proxy-refresh', {
+          const refreshResponse = await fetch(apiUrl('/api/proxy-refresh'), {
             method: 'POST',
             cache: 'no-store',
-            credentials: 'same-origin',
+            credentials: 'include',
             headers: { 'Accept': 'application/json' }
           });
           if (!refreshResponse.ok) {
