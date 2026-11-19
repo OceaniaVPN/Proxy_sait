@@ -9,6 +9,10 @@ This branch prepares the static frontend for GitHub Pages while leaving the exis
 - No DNS changes or Cloudflare domain binding are required.
 - Existing Worker deployments and D1 data must remain enabled.
 
+## Deploy updated API Workers before switching traffic
+
+After reviewing this branch, deploy each updated Worker from its repository root with `npx wrangler deploy` (Proxy_sait uses `wrangler.jsonc`; STEKLOVPN-Site uses `wrangler.toml`). Keep the existing D1 binding and secrets. Do not remove or recreate the database. This step is required because the current live Workers do not yet contain the new Pages CORS and bearer-session support.
+
 ## First-time GitHub Pages setup
 1. Open repository **Settings → Pages**.
 2. Under **Build and deployment**, select **GitHub Actions** as the source.
