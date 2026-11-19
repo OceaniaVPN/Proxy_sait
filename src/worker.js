@@ -86,7 +86,7 @@ function pagesCorsHeaders(request) {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Accept, Content-Type",
+    "Access-Control-Allow-Headers": "Accept, Authorization, Content-Type",
     "Access-Control-Max-Age": "86400",
     "Vary": "Origin"
   };
@@ -99,7 +99,9 @@ async function createSession(secret) {
 }
 async function isAdmin(request, secret) {
   if (!secret) return false;
-  const parts = cookieValue(request, COOKIE_NAME).split(".");
+  const authorization = request.headers.get("Authorization") || "";
+  const bearer = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
+  const parts = (bearer || cookieValue(request, COOKIE_NAME)).split(".");
   const now = Math.floor(Date.now() / 1000);
   if (parts.length !== 3) return false;
   const expires = Number(parts[0]);
@@ -1065,7 +1067,8 @@ async function handleApi(request, env, url, ctx) {
       return json({ error: "Неверный пароль." }, 401);
     }
     await env.DB.prepare("DELETE FROM admin_login_attempts WHERE ip_hash = ?").bind(ipHash).run();
-    return json({ authenticated: true }, 200, { "Set-Cookie": sessionCookie(await createSession(env.SESSION_SECRET)) });
+    const token = await createSession(env.SESSION_SECRET);
+    return json({ authenticated: true, token }, 200, { "Set-Cookie": sessionCookie(token) });
   }
 
   if (path === "/api/admin/logout" && method === "POST") {
