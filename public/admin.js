@@ -261,7 +261,7 @@
     if(!response.ok)throw new Error(data.error||'Запрос не выполнен.');
     return data;
   }
-  async function refreshSeason(){try{const data=await api('/api/season',{method:'GET'});applySeason(data.season);}catch(_){applySeason(currentSeason);}}
+  async function refreshSeason(){try{const response=await fetch('./season.json?v='+Date.now(),{cache:'no-store',credentials:'omit'});if(!response.ok)throw new Error('season feed unavailable');const data=await response.json();applySeason(data.season);}catch(_){applySeason(currentSeason);}}
   function setAdminView(value){if(loginView)loginView.hidden=value;if(panelView)panelView.hidden=!value;if(value)message(loginMessage,'',false);}
   async function checkAdmin(){
     try{const data=await api('/api/admin/session',{method:'GET'});setAdminView(Boolean(data.authenticated));}
