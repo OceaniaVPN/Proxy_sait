@@ -1,0 +1,38 @@
+name: Get Cloudflare Account ID
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  account-id:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find Cloudflare account ID
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${CF_API_TOKEN}" ]]; then
+            echo "::error::Missing repository secret CLOUDFLARE_API_TOKEN"
+            exit 1
+          fi
+
+          response="$(curl --fail-with-body --silent --show-error \
+            --get "https://api.cloudflare.com/client/v4/accounts" \
+            --header "Authorization: Bearer ${CF_API_TOKEN}" \
+            --header "Accept: application/json" \
+            --data-urlencode "per_page=50")"
+
+          echo "${response}" | jq -e '.success == true' >/dev/null || {
+            echo "::error::Cloudflare API rejected the token or it lacks Account Settings: Read permission."
+            echo "${response}" | jq '.errors'
+            exit 1
+          }
+
+          echo "Available Cloudflare accounts:"
+          echo "${response}" | jq -r '.result[] | "Name: \(.name) | ACCOUNT ID: \(.id)"'
