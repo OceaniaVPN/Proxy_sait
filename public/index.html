@@ -551,10 +551,32 @@
   <div class="toast" id="toast" role="status" aria-live="polite"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6"/></svg><span id="toast-text">Ссылка скопирована</span></div>
 
   <script>
-    // Список серверов загружается из Cloudflare Static Assets.
+    // Каталог публикуется GitHub Actions как статический JSON на GitHub Pages.
     const API_BASE = 'https://proxy-sait.novogodniysait.workers.dev';
     const apiUrl = (path) => API_BASE + path;
-    const FEED_URL = apiUrl('/api/proxies');
+    const FEED_URL = './proxies.json';
+
+    function applyStaticCatalog(payload) {
+      const rows = Array.isArray(payload?.proxies) ? payload.proxies : [];
+      if (rows.length && typeof rows[0] === 'object' && rows[0] !== null) {
+        proxies = rows.map(item => {
+          const kind = String(item.kind || '').toLowerCase();
+          const protocol = item.protocol || (kind === 'proxy' ? 'MTProto'
+            : kind === 'webproxy' ? 'WEB (TG)' : 'SOCKS5 (TG)');
+          return {
+            ...item,
+            protocol,
+            name: item.name || String(item.server || '') + (item.port ? ':' + item.port : ''),
+            pingStatus: item.pingStatus || item.status || 'unknown',
+            checkType: item.checkType || 'tcp',
+            latencyMs: item.latencyMs ?? null
+          };
+        });
+      } else {
+        proxies = extractProxyLinks(rows.join('\\n'));
+      }
+      render();
+    }
     const $ = (selector) => document.querySelector(selector);
     let proxies = [];
     let toastTimer;
@@ -924,9 +946,10 @@
         if (!response.ok) return;
         const payload = await response.json();
         if (!Array.isArray(payload?.proxies)) return;
-        proxies = extractProxyLinks(payload.proxies.join('\n'));
-        await checkProxyStatuses(proxies);
-        const progress = catalogProgressText(payload);
+        applyStaticCatalog(payload);
+        const progress = Number.isFinite(Number(payload.onlineCount))
+          ? ' · онлайн: ' + Number(payload.onlineCount) + '/' + Number(payload.count || payload.proxies.length)
+          : '';
         $('#results-label').textContent = proxies.length
           ? 'Рабочих серверов: ' + proxies.length + progress
           : 'Проверка каталога' + progress;
@@ -949,21 +972,8 @@
         : 'Получаем актуальный список. При первом запуске каталог может формироваться дольше обычного.');
 
       try {
-        if (forceRefresh) {
-          const refreshResponse = await fetch(apiUrl('/api/proxy-refresh'), {
-            method: 'POST',
-            cache: 'no-store',
-            credentials: 'omit',
-            headers: { 'Accept': 'application/json' }
-          });
-          if (!refreshResponse.ok) {
-            let detail = '';
-            try { detail = (await refreshResponse.json()).error || ''; } catch (_) {}
-            throw new Error(detail || `REFRESH_HTTP_${refreshResponse.status}`);
-          }
-        }
-
-        const feedUrl = forceRefresh ? `${FEED_URL}?fresh=1` : FEED_URL;
+        // GitHub Actions обновляет каталог по расписанию; кнопка перечитывает опубликованный JSON.
+        const feedUrl = forceRefresh ? `${FEED_URL}?v=${Date.now()}` : FEED_URL;
         for (let attempt = 0; attempt < 36; attempt++) {
           const response = await fetch(feedUrl, {
             method: 'GET', headers: { 'Accept': 'application/json' }
@@ -982,9 +992,8 @@
 
           const payload = await response.json();
           if (!Array.isArray(payload?.proxies)) throw new Error('INVALID_FEED_FORMAT');
-          proxies = extractProxyLinks(payload.proxies.join('\n'));
-          if (Number(payload.count || 0) > 0 && proxies.length === 0) throw new Error('FEED_PARSE_EMPTY');
-          await checkProxyStatuses(proxies, forceRefresh);
+          applyStaticCatalog(payload);
+          if (Number(payload.count || payload.proxies.length || 0) > 0 && proxies.length === 0) throw new Error('FEED_PARSE_EMPTY');
 
           if (!proxies.length) {
             const tcpPending = Number(payload.progress?.pendingChecks || 0);
