@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 PUBLIC = ROOT / "public"
 WORKER = "https://proxy-sait.novogodniysait.workers.dev"
 SOURCES = [
