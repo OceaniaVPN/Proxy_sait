@@ -1,0 +1,48 @@
+name: GitHub proxy collector and Worker season sync
+
+on:
+  schedule:
+    - cron: "13 */5 * * *"
+  workflow_dispatch:
+  push:
+    branches: [pages-migration]
+    paths:
+      - ".github/workflows/collect-proxies.yml"
+      - ".github/scripts/collect_proxies.py"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: proxy-collector-pages-migration
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout pages-migration
+        uses: actions/checkout@v4
+        with:
+          ref: pages-migration
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Collect proxies and sync season from Worker
+        run: python .github/scripts/collect_proxies.py
+
+      - name: Commit generated static data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/proxies.json public/proxies.txt public/proxy-status.json public/season.json public/index.html
+          if git diff --cached --quiet; then
+            echo "No generated changes."
+            exit 0
+          fi
+          git commit -m "Update proxy catalog and seasonal theme [skip ci]"
+          git push
