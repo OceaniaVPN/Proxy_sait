@@ -24,8 +24,13 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout pages-migration site
         uses: actions/checkout@v4
+        with:
+          ref: pages-migration
+      - name: Preserve custom domain
+        run: |
+          if [ -f CNAME ]; then cp CNAME public/CNAME; fi
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload static site
