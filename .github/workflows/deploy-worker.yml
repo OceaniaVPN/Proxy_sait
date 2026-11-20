@@ -1,0 +1,33 @@
+name: Deploy Proxy Sait Worker
+
+on:
+  push:
+    branches: [pages-migration]
+    paths:
+      - "src/worker.js"
+      - "wrangler.jsonc"
+      - "migrations/**"
+      - ".github/workflows/deploy-worker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proxy-sait-worker-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy Worker and preserve existing D1 binding
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --config wrangler.jsonc
