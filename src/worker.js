@@ -968,6 +968,33 @@ async function handleProxyStatus(request, env, url) {
   return json({ results: checked.concat(unverified) });
 }
 
+async function withEdgeCache(request, ctx, ttlSeconds, handler) {
+  const url = new URL(request.url);
+  if (request.method !== "GET" || url.searchParams.has("fresh") || !globalThis.caches?.default) {
+    return handler();
+  }
+
+  const cacheKey = new Request(url.toString(), { method: "GET" });
+  const cache = caches.default;
+  const cached = await cache.match(cacheKey);
+  if (cached) return cached;
+
+  const response = await handler();
+  if (!response.ok) return response;
+
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", "public, max-age=" + ttlSeconds);
+  headers.delete("Pragma");
+  const cacheable = new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+  if (ctx?.waitUntil) ctx.waitUntil(cache.put(cacheKey, cacheable.clone()));
+  else await cache.put(cacheKey, cacheable.clone());
+  return cacheable;
+}
+
 async function handleApi(request, env, url, ctx) {
   const path = url.pathname;
   const method = request.method;
@@ -1099,11 +1126,13 @@ export default {
       } else if (url.pathname.startsWith("/api/")) {
         if (request.method !== "GET" && request.method !== "POST") {
           response = json({ error: "Method not allowed." }, 405, { "Allow": "GET, POST" });
+        } else if (request.method === "GET" && ["/api/proxies", "/api/proxy-status"].includes(url.pathname)) {
+          response = await withEdgeCache(request, ctx, 180, () => handleApi(request, env, url, ctx));
         } else {
           response = await handleApi(request, env, url, ctx);
         }
       } else if (request.method === "GET" && url.pathname === "/proxies.txt") {
-        response = await getVerifiedProxyFeed(env, ctx);
+        response = await withEdgeCache(request, ctx, 180, () => getVerifiedProxyFeed(env, ctx));
       } else if (request.method === "GET" || request.method === "HEAD") {
         response = env.ASSETS ? await env.ASSETS.fetch(request) : new Response("Assets binding is not configured.", { status: 503 });
       } else {
